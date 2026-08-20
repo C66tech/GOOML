@@ -52,8 +52,8 @@
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.18.0";
+    // GAME VERSION
+    const GAME_VERSION = "v3.20.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -79,7 +79,7 @@
     let audioCtx = null;
 
     let hudCanvas, hudCtx, hudTexture;
-    let btnPitchDownMesh, btnPitchUpMesh, btnHandToggleMesh, btnStartMesh;
+    let btnPitchDownMesh, btnPitchUpMesh, btnHandToggleMesh, btnStartMesh, btnLaserMesh;
 
     let logoMesh = null;
 
@@ -94,7 +94,9 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31', 'e11'];
+    
+    // ADDED F11 TO THE ANIMALS ARRAY
+    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31', 'e11', 'f11'];
 
     const SIZE_MAP = {
       1: { scale: 0.30, points: 200, speed: 0.85 },
@@ -371,7 +373,6 @@
       activeAnimals.push(animalMesh);
     }
 
-    // ENGLISH RULES IN THE TITLE PANEL
     function createPresentationLogo() {
       const logoGeo = new THREE.PlaneGeometry(1, 1);
       const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
@@ -400,7 +401,6 @@
         ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; 
         ctx.fillText('GET OFF OF MY LAWN!', 256, 50);
 
-        // Game rules in English
         ctx.fillStyle = '#00ff66'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'left';
         ctx.fillText('GAME RULES:', 30, 85);
 
@@ -484,8 +484,8 @@
 
     function create3DHUD() {
       const hudGroup = new THREE.Group();
-      hudGroup.position.set(-0.8, 0.85, -2.5);
-      hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
+      hudGroup.position.set(0, 0.6, -1.5);
+      hudGroup.rotation.x = THREE.MathUtils.degToRad(-20);
 
       hudCanvas = document.createElement('canvas');
       hudCanvas.width = 600; hudCanvas.height = 340;
@@ -499,7 +499,7 @@
       hudGroup.add(panelMesh);
 
       btnPitchDownMesh = create3DButton("Pitch Down ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.32, -0.45, 0);
+      btnPitchDownMesh.position.set(-0.35, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
@@ -509,16 +509,27 @@
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
       btnHandToggleMesh = create3DButton("Left Hand", 0.28, 0.11, "#00ffff");
-      btnHandToggleMesh.position.set(0.32, -0.45, 0);
+      btnHandToggleMesh.position.set(0.35, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
       hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
 
-      btnStartMesh = create3DButton("▶ START GAME", 0.43, 0.11, "#00ffcc");
-      btnStartMesh.position.set(0, -0.59, 0);
+      btnLaserMesh = create3DButton(laserEnabled ? "Laser: ON" : "Laser: OFF", 0.28, 0.11, "#ff0000");
+      btnLaserMesh.position.set(-0.2, -0.60, 0);
+      btnLaserMesh.userData = { action: 'toggle_laser' };
+      hudGroup.add(btnLaserMesh); hudButtons.push(btnLaserMesh);
+
+      btnStartMesh = create3DButton("▶ START GAME", 0.28, 0.11, "#00ffcc");
+      btnStartMesh.position.set(0.2, -0.60, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
       cameraRig.add(hudGroup); 
+    }
+
+    function toggleLaser() {
+      laserEnabled = !laserEnabled;
+      laserLines.forEach(line => line.visible = laserEnabled);
+      update3DButtonText(btnLaserMesh, laserEnabled ? "Laser: ON" : "Laser: OFF", "#ff0000");
     }
 
     function updateHudTexture() {
@@ -722,6 +733,7 @@
           if (action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (action === 'toggle_hand') { toggleHand(); }
+          else if (action === 'toggle_laser') { toggleLaser(); }
           else if (action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
           const animal = activeAnimals.find(a => a === hit.object);

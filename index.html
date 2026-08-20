@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  
+  <!-- TAG META ANTI-CACHE -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
+  <title>Get Off of My Lawn - WebXR Target Shooter</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      font-family: Arial, sans-serif;
+    }
+  </style>
+
+  <!-- Import Map Three.js via ES Modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { VRButton } from 'three/addons/webxr/VRButton.js';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    let scene, camera, renderer, controls;
+    let controllers = [];
+    let gunPivots = [];
+    let laserLines = [];
+    let tracers = [];
+    let hudButtons = [];
+    let score = 0;
+    let lawnMesh = null;
+    let fenceGroup = null;
+    
+    // STATO DEL GIOCO: 'LOBBY' oppure 'PLAYING'
+    let gameState = 'LOBBY';
+
+    // INCLINAZIONE DEFAULT -14°
+    let currentGunPitch = THREE.MathUtils.degToRad(-14);
+    let laserEnabled = true;
+
+    // Web Audio API Context
+    let audioCtx = null;
+
+    // Elementi HUD 3D
+    let hudCanvas, hudCtx, hudTexture;
+    let btnPitchDownMesh, btnPitchUpMesh, btnLaserToggleMesh, btnStartMesh;
+
+    // Logo Mesh
+    let logoMesh = null;
+
+    // Gestione unificata gioco
+    let activeAnimals = [];
+    let flyingRagdolls = [];
+    let spawnTimer = 0;
+    const SPAWN_INTERVAL = 3.0; // Spawn ogni 3 secondi
+
+    // Cache delle Texture caricate
+    const textureCache = {};
+    const textureLoader = new THREE.TextureLoader();
+
+    // ==========================================
+    // REGISTRO FILE DISPONIBILI
+    // Preimpostato con Cane (a21) e Tasso (b21)
+    // ==========================================
+    const AVAILABLE_IMAGES = [
+      'a21', // Animale A - Taglia 2 (Cane)
+      'b21'  // Animale B - Taglia 2 (Tasso)
+    ];
+
+    // Mappatura dimensioni in metri per livello (1-4)
+    const SIZE_MAP = {
+      1: { scale: 0.35, points: 200, speed: 1.4 }, // Lepre
+      2: { scale: 0.60, points: 150, speed: 1.0 }, // Cane / Tasso (Taglia 2)
+      3: { scale: 1.10, points: 100, speed: 0.7 }, // Cinghiale
+      4: { scale: 2.20, points: 50,  speed: 0.4 }  // Elefante
+    };
+
+    const clock = new THREE.Clock();
+
+    function getAnimalTexture(fileName) {
+      if (!textureCache[fileName]) {
+        const texture = textureLoader.load(`${fileName}.png`, undefined, undefined, () => {
+          console.warn(`Immagine ${fileName}.png non trovata.`);
+        });
+        texture.colorSpace = THREE.SRGBColorSpace;
+        textureCache[fileName] = texture;
+      }
+      return textureCache[fileName];
+    }
+
+    // ==========================================
+    // INIZIALIZZAZIONE APPLICAZIONE WEBXR
+    // ==========================================
+    init();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1a2634);
+
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 1.5, 0.5);
+      camera.lookAt(0, 1.0, -2.5);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xfffaed, 1.4);
+      dirLight.position.set(5, 12, 6);
+      scene.add(dirLight);
+
+      createLawnAndFence();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      renderer.xr.addEventListener('sessionstart', () => {
+        const session = renderer.xr.getSession();
+        if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
+          scene.background = null;
+          if (lawnMesh) lawnMesh.visible = false;
+        }
+      });
+
+      renderer.xr.addEventListener('sessionend', () => {
+        scene.background = new THREE.Color(0x1a2634);
+        if (lawnMesh) lawnMesh.visible = true;
+      });
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 1.0, -2.5);
+      controls.update();
+
+      document.body.appendChild(VRButton.createButton(renderer));
+      document.body.appendChild(ARButton.createButton(renderer));
+
+      setupControllers();
+      create3DHUD();
+      createPresentationLogo();
+      updateGunRotation();
+
+      gameState = 'LOBBY';
+      updateHudTexture();
+
+      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('click', initAudio, { once: true });
+      window.addEventListener('pointerdown', onDesktopShoot);
+
+      renderer.setAnimationLoop(animate);
+    }
+
+    function createLawnAndFence() {
+      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
+      const lawnMat = new THREE.MeshStandardMaterial({ color: 0x478c2e, roughness: 0.9 });
+      lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
+      lawnMesh.rotation.x = -Math.PI / 2;
+      lawnMesh.position.set(0, 0, -2.5);
+      scene.add(lawnMesh);
+
+      fenceGroup = new THREE.Group();
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+
+      const halfSize = 2.5;
+      const postGeo = new THREE.BoxGeometry(0.06, 0.45, 0.06);
+      const plankGeo = new THREE.BoxGeometry(5.0, 0.08, 0.02);
+
+      const sides = [
+        { rot: 0, pos: [0, 0, -2.5 - halfSize] },
+        { rot: Math.PI / 2, pos: [halfSize, 0, -2.5] },
+        { rot: 0, pos: [0, 0, -2.5 + halfSize] },
+        { rot: Math.PI / 2, pos: [-halfSize, 0, -2.5] }
+      ];
+
+      sides.forEach(s => {
+        const sideGroup = new THREE.Group();
+        sideGroup.position.set(...s.pos);
+        sideGroup.rotation.y = s.rot;
+
+        for (let x = -halfSize; x <= halfSize; x += 1.0) {
+          const post = new THREE.Mesh(postGeo, woodMat);
+          post.position.set(x, 0.225, 0);
+          sideGroup.add(post);
+        }
+
+        const p1 = new THREE.Mesh(plankGeo, woodMat);
+        p1.position.set(0, 0.15, 0);
+        const p2 = new THREE.Mesh(plankGeo, woodMat);
+        p2.position.set(0, 0.32, 0);
+        sideGroup.add(p1, p2);
+
+        fenceGroup.add(sideGroup);
+      });
+
+      scene.add(fenceGroup);
+    }
+
+    function startGame() {
+      cleanupGame();
+      gameState = 'PLAYING';
+      score = 0;
+      spawnTimer = 0;
+      updateHudTexture();
+      update3DButtonText(btnStartMesh, "⏹ STOP GIOCO", "#ff2a6d");
+    }
+
+    function stopGame() {
+      cleanupGame();
+      gameState = 'LOBBY';
+      updateHudTexture();
+      update3DButtonText(btnStartMesh, "▶ START GIOCO", "#00ffcc");
+    }
+
+    function cleanupGame() {
+      activeAnimals.forEach(a => {
+        scene.remove(a);
+        a.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+      });
+      activeAnimals = [];
+
+      flyingRagdolls.forEach(f => {
+        scene.remove(f.mesh);
+        f.mesh.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+      });
+      flyingRagdolls = [];
+    }
+
+    // --- SPAWN CANE / TASSO (TAGLIA 2) ---
+    function spawnAnimalFromOutside() {
+      if (AVAILABLE_IMAGES.length === 0) return;
+
+      // Selezione tra a21 e b21
+      const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
+      
+      const animalType = baseName.charAt(0); // 'a' o 'b'
+      const sizeDigit = parseInt(baseName.charAt(1), 10) || 2; // Taglia 2
+
+      // Nome del rispettivo frame di volo (a22 o b22)
+      const frame2Name = `${animalType}${sizeDigit}2`;
+
+      const sizeData = SIZE_MAP[sizeDigit] || SIZE_MAP[2];
+
+      const texFrame1 = getAnimalTexture(baseName);
+      const texFrame2 = getAnimalTexture(frame2Name);
+
+      const planeGeo = new THREE.PlaneGeometry(sizeData.scale, sizeData.scale);
+      const planeMat = new THREE.MeshBasicMaterial({
+        map: texFrame1,
+        transparent: true,
+        alphaTest: 0.1,
+        side: THREE.DoubleSide
+      });
+
+      const animalMesh = new THREE.Mesh(planeGeo, planeMat);
+
+      // Spawn casuale all'esterno del recinto
+      const angle = Math.random() * Math.PI * 2;
+      const spawnDist = 3.5;
+      const startX = Math.cos(angle) * spawnDist;
+      const startZ = -2.5 + Math.sin(angle) * spawnDist;
+
+      const targetX = -startX * 0.8;
+      const targetZ = -2.5 - (startZ + 2.5) * 0.8;
+
+      animalMesh.position.set(startX, sizeData.scale / 2, startZ);
+      animalMesh.lookAt(camera.position.x, animalMesh.position.y, camera.position.z);
+
+      animalMesh.userData = {
+        active: true,
+        points: sizeData.points,
+        speed: sizeData.speed,
+        startPos: new THREE.Vector3(startX, sizeData.scale / 2, startZ),
+        targetPos: new THREE.Vector3(targetX, sizeData.scale / 2, targetZ),
+        dir: new THREE.Vector3(targetX - startX, 0, targetZ - startZ).normalize(),
+        texFrame2: texFrame2
+      };
+
+      scene.add(animalMesh);
+      activeAnimals.push(animalMesh);
+    }
+
+    function createPresentationLogo() {
+      const logoGeo = new THREE.PlaneGeometry(1, 1);
+      const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
+
+      logoMesh = new THREE.Mesh(logoGeo, logoMat);
+      logoMesh.position.set(0, 2.15, -2.5);
+      scene.add(logoMesh);
+
+      textureLoader.load('logo.png', (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        logoMat.map = texture;
+        const aspectRatio = texture.image.width / texture.image.height;
+        logoMesh.scale.set(0.9 * aspectRatio, 0.9, 1);
+        logoMat.needsUpdate = true;
+      }, undefined, () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(20, 40, 20, 0.9)'; ctx.fillRect(10, 10, 492, 236);
+        ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 236);
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY', 256, 100);
+        ctx.fillStyle = '#00ff66'; ctx.font = 'bold 44px Arial'; ctx.fillText('LAWN!', 256, 170);
+        logoMat.map = new THREE.CanvasTexture(canvas);
+        logoMesh.scale.set(1.8, 0.9, 1);
+        logoMat.needsUpdate = true;
+      });
+    }
+
+    function initAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function playGunshotSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const bufferSize = audioCtx.sampleRate * 0.12;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, now);
+      filter.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(1.0, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+      noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+      noise.start(now);
+    }
+
+    function playYeetSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+
+      gain.gain.setValueAtTime(0.7, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.25);
+    }
+
+    function create3DHUD() {
+      const hudGroup = new THREE.Group();
+      hudGroup.position.set(-1.1, 1.45, -1.6);
+      hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
+
+      hudCanvas = document.createElement('canvas');
+      hudCanvas.width = 512; hudCanvas.height = 300;
+      hudCtx = hudCanvas.getContext('2d');
+      hudTexture = new THREE.CanvasTexture(hudCanvas);
+
+      const panelMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.0, 0.58),
+        new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, side: THREE.DoubleSide })
+      );
+      hudGroup.add(panelMesh);
+
+      btnPitchDownMesh = create3DButton("Inclina Avanti ⤵", 0.28, 0.11);
+      btnPitchDownMesh.position.set(-0.33, -0.40, 0);
+      btnPitchDownMesh.userData = { action: 'pitch_down' };
+      hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
+
+      btnPitchUpMesh = create3DButton("Inclina Indietro ⤴", 0.28, 0.11);
+      btnPitchUpMesh.position.set(-0.02, -0.40, 0);
+      btnPitchUpMesh.userData = { action: 'pitch_up' };
+      hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
+
+      btnLaserToggleMesh = create3DButton("Laser: ON", 0.28, 0.11);
+      btnLaserToggleMesh.position.set(0.29, -0.40, 0);
+      btnLaserToggleMesh.userData = { action: 'toggle_laser' };
+      hudGroup.add(btnLaserToggleMesh); hudButtons.push(btnLaserToggleMesh);
+
+      btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
+      btnStartMesh.position.set(0, -0.54, 0);
+      btnStartMesh.userData = { action: 'toggle_start' };
+      hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
+
+      scene.add(hudGroup);
+    }
+
+    function updateHudTexture() {
+      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 300);
+      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 292);
+
+      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 45);
+      hudCtx.fillStyle = '#ffffff'; hudCtx.font = 'bold 18px Arial'; hudCtx.fillText('Difendi il tuo giardino!', 28, 80);
+
+      hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
+      hudCtx.font = 'bold 20px Arial';
+      hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 120);
+
+      hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
+      hudCtx.font = 'bold 34px Arial';
+      hudCtx.fillText('Punti: ' + score, 28, 185);
+
+      const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
+      hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 22px Arial';
+      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 240);
+
+      hudTexture.needsUpdate = true;
+    }
+
+    function create3DButton(label, width, height, strokeColor = '#00ff66') {
+      const btnCanvas = document.createElement('canvas');
+      btnCanvas.width = 300; btnCanvas.height = 100;
+      const ctx = btnCanvas.getContext('2d');
+      ctx.fillStyle = '#142a14'; ctx.fillRect(0, 0, 300, 100);
+      ctx.strokeStyle = strokeColor; ctx.lineWidth = 6; ctx.strokeRect(4, 4, 292, 92);
+      ctx.fillStyle = strokeColor; ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 150, 50);
+
+      const btnTex = new THREE.CanvasTexture(btnCanvas);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.04), new THREE.MeshStandardMaterial({ map: btnTex, roughness: 0.3 }));
+      mesh.userData = { canvas: btnCanvas, ctx: ctx, texture: btnTex };
+      return mesh;
+    }
+
+    function update3DButtonText(btnMesh, label, colorHex = '#00ff66') {
+      const ctx = btnMesh.userData.ctx;
+      ctx.fillStyle = '#142a14'; ctx.fillRect(0, 0, 300, 100);
+      ctx.strokeStyle = colorHex; ctx.lineWidth = 6; ctx.strokeRect(4, 4, 292, 92);
+      ctx.fillStyle = colorHex; ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 150, 50);
+      btnMesh.userData.texture.needsUpdate = true;
+    }
+
+    function createRedGunModel() {
+      const gunGroup = new THREE.Group();
+      const redGunMat = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.2, metalness: 0.5 });
+      const blackDetailMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
+
+      const barrelGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.26, 16);
+      barrelGeo.rotateX(Math.PI / 2);
+      const barrel = new THREE.Mesh(barrelGeo, redGunMat);
+      barrel.position.set(0, 0, -0.1);
+      gunGroup.add(barrel);
+
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.04), blackDetailMat);
+      handle.position.set(0, -0.05, 0.02); handle.rotation.x = -0.3;
+      gunGroup.add(handle);
+
+      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.015, 0.003, 8, 24), blackDetailMat);
+      ringMesh.position.set(0, 0.032, 0.02);
+      gunGroup.add(ringMesh);
+
+      const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.012, 0.004), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+      frontSight.position.set(0, 0.026, -0.22);
+      gunGroup.add(frontSight);
+
+      const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -0.23), new THREE.Vector3(0, 0, -15)]);
+      const laserMat = new THREE.LineBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6 });
+      const laserLine = new THREE.Line(laserGeo, laserMat);
+      laserLine.visible = laserEnabled;
+      gunGroup.add(laserLine);
+      laserLines.push(laserLine);
+
+      return gunGroup;
+    }
+
+    function setupControllers() {
+      for (let i = 0; i < 2; i++) {
+        const controller = renderer.xr.getController(i);
+        const pivot = new THREE.Group();
+        const gun = createRedGunModel();
+        pivot.add(gun);
+        controller.add(pivot);
+        controller.addEventListener('selectstart', onXRShoot);
+        scene.add(controller);
+        controllers.push(controller);
+        gunPivots.push(pivot);
+      }
+    }
+
+    function updateGunRotation() {
+      gunPivots.forEach(pivot => { pivot.rotation.x = currentGunPitch; });
+      updateHudTexture();
+    }
+
+    function toggleLaser() {
+      laserEnabled = !laserEnabled;
+      laserLines.forEach(line => line.visible = laserEnabled);
+      update3DButtonText(btnLaserToggleMesh, laserEnabled ? "Laser: ON" : "Laser: OFF");
+    }
+
+    function onXRShoot(event) {
+      const controller = event.target;
+      const pivot = controller.children.find(c => gunPivots.includes(c));
+      if (!pivot) return;
+
+      const origin = new THREE.Vector3();
+      const worldQuat = new THREE.Quaternion();
+      pivot.getWorldPosition(origin);
+      pivot.getWorldQuaternion(worldQuat);
+
+      const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat);
+      processShot(origin, direction);
+    }
+
+    function onDesktopShoot(event) {
+      if (renderer.xr.isPresenting) return;
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1);
+      raycaster.setFromCamera(mouse, camera);
+      processShot(raycaster.ray.origin, raycaster.ray.direction);
+    }
+
+    function processShot(origin, direction) {
+      playGunshotSound();
+
+      const raycaster = new THREE.Raycaster(origin, direction);
+      const candidates = [...activeAnimals.filter(a => a.userData.active), ...hudButtons];
+
+      const intersects = raycaster.intersectObjects(candidates, false);
+      let endPoint = origin.clone().add(direction.clone().multiplyScalar(25));
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        endPoint = hit.point;
+
+        const hitBtn = hudButtons.find(b => b === hit.object);
+        if (hitBtn) {
+          if (hitBtn.userData.action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (hitBtn.userData.action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (hitBtn.userData.action === 'toggle_laser') { toggleLaser(); }
+          else if (hitBtn.userData.action === 'toggle_start') { if (gameState === 'LOBBY') startGame(); else stopGame(); }
+        } else if (gameState === 'PLAYING') {
+          const animal = activeAnimals.find(a => a === hit.object);
+          if (animal && animal.userData.active) {
+            score += animal.userData.points;
+            updateHudTexture();
+            playYeetSound();
+
+            animal.userData.active = false;
+            const idx = activeAnimals.indexOf(animal);
+            if (idx !== -1) activeAnimals.splice(idx, 1);
+
+            // Passaggio al Frame 2 di volo (a22 o b22)
+            animal.material.map = animal.userData.texFrame2;
+            animal.material.needsUpdate = true;
+
+            const pushDir = direction.clone().normalize();
+            const impulse = new THREE.Vector3(
+              pushDir.x * 6.5,
+              4.5 + Math.random() * 2.0,
+              pushDir.z * 6.5
+            );
+
+            flyingRagdolls.push({
+              mesh: animal,
+              velocity: impulse,
+              rotVelocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 10,
+                (Math.random() - 0.5) * 10,
+                (Math.random() - 0.5) * 10
+              ),
+              life: 3.0
+            });
+          }
+        }
+      }
+
+      createTracer(origin, endPoint);
+    }
+
+    function createTracer(start, end) {
+      const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+      const mat = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 1.0 });
+      const line = new THREE.Line(geo, mat);
+      line.userData = { life: 0.06 };
+      scene.add(line);
+      tracers.push(line);
+    }
+
+    function updateTracers(delta) {
+      for (let i = tracers.length - 1; i >= 0; i--) {
+        const tracer = tracers[i];
+        tracer.userData.life -= delta;
+        if (tracer.userData.life <= 0) {
+          scene.remove(tracer);
+          tracer.geometry.dispose();
+          tracer.material.dispose();
+          tracers.splice(i, 1);
+        } else {
+          tracer.material.opacity = tracer.userData.life / 0.06;
+        }
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      const delta = clock.getDelta();
+
+      if (gameState === 'PLAYING') {
+        spawnTimer += delta;
+        if (spawnTimer >= SPAWN_INTERVAL) {
+          spawnTimer = 0;
+          spawnAnimalFromOutside();
+        }
+
+        for (let i = activeAnimals.length - 1; i >= 0; i--) {
+          const a = activeAnimals[i];
+          const moveStep = a.userData.dir.clone().multiplyScalar(a.userData.speed * delta);
+          a.position.add(moveStep);
+
+          a.lookAt(camera.position.x, a.position.y, camera.position.z);
+
+          if (a.position.distanceTo(a.userData.startPos) > 8.0) {
+            scene.remove(a);
+            a.geometry.dispose();
+            a.material.dispose();
+            activeAnimals.splice(i, 1);
+          }
+        }
+
+        for (let i = flyingRagdolls.length - 1; i >= 0; i--) {
+          const ragdoll = flyingRagdolls[i];
+          ragdoll.life -= delta;
+
+          ragdoll.velocity.y -= 9.8 * delta;
+
+          ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
+          ragdoll.mesh.rotation.x += ragdoll.rotVelocity.x * delta;
+          ragdoll.mesh.rotation.y += ragdoll.rotVelocity.y * delta;
+          ragdoll.mesh.rotation.z += ragdoll.rotVelocity.z * delta;
+
+          if (ragdoll.mesh.position.y <= -0.5 || ragdoll.life <= 0) {
+            scene.remove(ragdoll.mesh);
+            ragdoll.mesh.geometry.dispose();
+            ragdoll.mesh.material.dispose();
+            flyingRagdolls.splice(i, 1);
+          }
+        }
+      }
+
+      updateTracers(delta);
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>

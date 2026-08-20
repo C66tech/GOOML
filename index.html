@@ -47,7 +47,7 @@
     let lawnMesh = null;
     let fenceGroup = null;
     
-    // STATO DEL GIOCO: 'LOBBY' oppure 'PLAYING'
+    // STATO DEL GIOCO: 'LOBBY', 'PLAYING', 'GAMEOVER'
     let gameState = 'LOBBY';
 
     // INCLINAZIONE DEFAULT -14°
@@ -67,28 +67,25 @@
     // Gestione unificata gioco
     let activeAnimals = [];
     let flyingRagdolls = [];
+    let poops = [];
     let spawnTimer = 0;
-    const SPAWN_INTERVAL = 3.0; // Spawn ogni 3 secondi
+    let survivalTime = 0;
+    let baseSpawnInterval = 3.0; // Diminuisce col tempo
+    let difficultyMultiplier = 1.0; // Aumenta col tempo
+
+    const MAX_POOPS = 5;
 
     // Cache delle Texture caricate
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
 
-    // ==========================================
-    // REGISTRO FILE DISPONIBILI
-    // Preimpostato con Cane (a21) e Tasso (b21)
-    // ==========================================
-    const AVAILABLE_IMAGES = [
-      'a21', // Animale A - Taglia 2 (Cane)
-      'b21'  // Animale B - Taglia 2 (Tasso)
-    ];
+    const AVAILABLE_IMAGES = ['a21', 'b21'];
 
-    // Mappatura dimensioni in metri per livello (1-4)
     const SIZE_MAP = {
-      1: { scale: 0.35, points: 200, speed: 1.4 }, // Lepre
-      2: { scale: 0.60, points: 150, speed: 1.0 }, // Cane / Tasso (Taglia 2)
-      3: { scale: 1.10, points: 100, speed: 0.7 }, // Cinghiale
-      4: { scale: 2.20, points: 50,  speed: 0.4 }  // Elefante
+      1: { scale: 0.35, points: 200, speed: 1.4 },
+      2: { scale: 0.60, points: 150, speed: 1.0 },
+      3: { scale: 1.10, points: 100, speed: 0.7 },
+      4: { scale: 2.20, points: 50,  speed: 0.4 }
     };
 
     const clock = new THREE.Clock();
@@ -114,8 +111,10 @@
       scene.background = new THREE.Color(0x1a2634);
 
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 1.5, 0.5);
-      camera.lookAt(0, 1.0, -2.5);
+      
+      // PER DESKTOP: Mettiamo l'altezza simulata a 1.6m.
+      // IN WEBXR: Verrà sovrascritta dall'altezza reale del tracciamento visore
+      camera.position.set(0, 1.6, 0);
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
       scene.add(ambientLight);
@@ -124,12 +123,17 @@
       dirLight.position.set(5, 12, 6);
       scene.add(dirLight);
 
+      // Prato e Staccionata
       createLawnAndFence();
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
+
+      // CONFIGURAZIONE LIVELLO PAVIMENTO WEBXR NATIVO
+      renderer.xr.setReferenceSpaceType('local-floor');
+
       document.body.appendChild(renderer.domElement);
 
       renderer.xr.addEventListener('sessionstart', () => {
@@ -146,7 +150,7 @@
       });
 
       controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(0, 1.0, -2.5);
+      controls.target.set(0, 0.8, -2.5);
       controls.update();
 
       document.body.appendChild(VRButton.createButton(renderer));
@@ -168,8 +172,9 @@
     }
 
     function createLawnAndFence() {
+      // Prato sul pavimento (Y = 0)
       const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
-      const lawnMat = new THREE.MeshStandardMaterial({ color: 0x478c2e, roughness: 0.9 });
+      const lawnMat = new THREE.MeshStandardMaterial({ color: 0x38761d, roughness: 0.9 });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
       lawnMesh.rotation.x = -Math.PI / 2;
       lawnMesh.position.set(0, 0, -2.5);
@@ -212,11 +217,34 @@
       scene.add(fenceGroup);
     }
 
+    // MODELLO CACCA MARRONE
+    function createPoopModel(x, z) {
+      const poopGroup = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.9 });
+      
+      const b1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.04, 8), mat);
+      b1.position.y = 0.02;
+      const b2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.03, 8), mat);
+      b2.position.y = 0.05;
+      const b3 = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.04, 8), mat);
+      b3.position.y = 0.08;
+
+      poopGroup.add(b1, b2, b3);
+      poopGroup.position.set(x, 0, z);
+      
+      scene.add(poopGroup);
+      poops.push(poopGroup);
+    }
+
     function startGame() {
       cleanupGame();
       gameState = 'PLAYING';
       score = 0;
       spawnTimer = 0;
+      survivalTime = 0;
+      baseSpawnInterval = 3.0;
+      difficultyMultiplier = 1.0;
+      
       updateHudTexture();
       update3DButtonText(btnStartMesh, "⏹ STOP GIOCO", "#ff2a6d");
     }
@@ -228,31 +256,41 @@
       update3DButtonText(btnStartMesh, "▶ START GIOCO", "#00ffcc");
     }
 
+    function gameOver() {
+      gameState = 'GAMEOVER';
+      updateHudTexture();
+      update3DButtonText(btnStartMesh, "🔄 RIGIOCA", "#00ffcc");
+    }
+
     function cleanupGame() {
       activeAnimals.forEach(a => {
         scene.remove(a);
-        a.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+        a.geometry.dispose();
+        a.material.dispose();
       });
       activeAnimals = [];
 
       flyingRagdolls.forEach(f => {
         scene.remove(f.mesh);
-        f.mesh.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+        f.mesh.geometry.dispose();
+        f.mesh.material.dispose();
       });
       flyingRagdolls = [];
+
+      poops.forEach(p => {
+        scene.remove(p);
+        p.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+      });
+      poops = [];
     }
 
-    // --- SPAWN CANE / TASSO (TAGLIA 2) ---
+    // --- MOVIMENTO ORIZZONTALE SULLA LINEA CENTRALE ---
     function spawnAnimalFromOutside() {
       if (AVAILABLE_IMAGES.length === 0) return;
 
-      // Selezione tra a21 e b21
       const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
-      
-      const animalType = baseName.charAt(0); // 'a' o 'b'
-      const sizeDigit = parseInt(baseName.charAt(1), 10) || 2; // Taglia 2
-
-      // Nome del rispettivo frame di volo (a22 o b22)
+      const animalType = baseName.charAt(0);
+      const sizeDigit = parseInt(baseName.charAt(1), 10) || 2;
       const frame2Name = `${animalType}${sizeDigit}2`;
 
       const sizeData = SIZE_MAP[sizeDigit] || SIZE_MAP[2];
@@ -270,25 +308,23 @@
 
       const animalMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      // Spawn casuale all'esterno del recinto
-      const angle = Math.random() * Math.PI * 2;
-      const spawnDist = 3.5;
-      const startX = Math.cos(angle) * spawnDist;
-      const startZ = -2.5 + Math.sin(angle) * spawnDist;
+      // Scorre in orizzontale sulla linea centrale Z = -2.5
+      const fromLeft = Math.random() > 0.5;
+      const startX = fromLeft ? -3.2 : 3.2;
+      const targetX = fromLeft ? 3.2 : -3.2;
+      const centerZ = -2.5;
 
-      const targetX = -startX * 0.8;
-      const targetZ = -2.5 - (startZ + 2.5) * 0.8;
-
-      animalMesh.position.set(startX, sizeData.scale / 2, startZ);
+      // Posizione a terra (Y = scale/2 per appoggiarlo sul prato)
+      animalMesh.position.set(startX, sizeData.scale / 2, centerZ);
       animalMesh.lookAt(camera.position.x, animalMesh.position.y, camera.position.z);
 
       animalMesh.userData = {
         active: true,
         points: sizeData.points,
-        speed: sizeData.speed,
-        startPos: new THREE.Vector3(startX, sizeData.scale / 2, startZ),
-        targetPos: new THREE.Vector3(targetX, sizeData.scale / 2, targetZ),
-        dir: new THREE.Vector3(targetX - startX, 0, targetZ - startZ).normalize(),
+        speed: sizeData.speed * difficultyMultiplier, // Velocità incrementale
+        dirX: fromLeft ? 1 : -1,
+        targetX: targetX,
+        hasPooped: false,
         texFrame2: texFrame2
       };
 
@@ -377,33 +413,33 @@
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
       hudCanvas = document.createElement('canvas');
-      hudCanvas.width = 512; hudCanvas.height = 300;
+      hudCanvas.width = 512; hudCanvas.height = 320;
       hudCtx = hudCanvas.getContext('2d');
       hudTexture = new THREE.CanvasTexture(hudCanvas);
 
       const panelMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.0, 0.58),
+        new THREE.PlaneGeometry(1.0, 0.62),
         new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, side: THREE.DoubleSide })
       );
       hudGroup.add(panelMesh);
 
       btnPitchDownMesh = create3DButton("Inclina Avanti ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.33, -0.40, 0);
+      btnPitchDownMesh.position.set(-0.33, -0.42, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
       btnPitchUpMesh = create3DButton("Inclina Indietro ⤴", 0.28, 0.11);
-      btnPitchUpMesh.position.set(-0.02, -0.40, 0);
+      btnPitchUpMesh.position.set(-0.02, -0.42, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
       btnLaserToggleMesh = create3DButton("Laser: ON", 0.28, 0.11);
-      btnLaserToggleMesh.position.set(0.29, -0.40, 0);
+      btnLaserToggleMesh.position.set(0.29, -0.42, 0);
       btnLaserToggleMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserToggleMesh); hudButtons.push(btnLaserToggleMesh);
 
       btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
-      btnStartMesh.position.set(0, -0.54, 0);
+      btnStartMesh.position.set(0, -0.56, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
@@ -411,23 +447,42 @@
     }
 
     function updateHudTexture() {
-      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 300);
-      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 292);
+      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 320);
+      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 312);
 
-      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 45);
-      hudCtx.fillStyle = '#ffffff'; hudCtx.font = 'bold 18px Arial'; hudCtx.fillText('Difendi il tuo giardino!', 28, 80);
+      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 24px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
 
-      hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
-      hudCtx.font = 'bold 20px Arial';
-      hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 120);
+      // TIMER DI SOPRAVVIVENZA IN ALTO
+      const mins = Math.floor(survivalTime / 60);
+      const secs = Math.floor(survivalTime % 60);
+      const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 22px Arial';
+      hudCtx.fillText('Tempo Difesa: ' + timeStr, 28, 75);
 
+      // STATO GIOCO
+      if (gameState === 'GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial';
+        hudCtx.fillText('GAME OVER! Prato Invaso!', 28, 115);
+      } else {
+        hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
+        hudCtx.font = 'bold 20px Arial';
+        hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 115);
+      }
+
+      // CACCHE SUL PRATO
+      hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
+      hudCtx.font = 'bold 22px Arial';
+      hudCtx.fillText(`Cacca sul prato: ${poops.length} / ${MAX_POOPS}`, 28, 155);
+
+      // PUNTI
       hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
-      hudCtx.font = 'bold 34px Arial';
-      hudCtx.fillText('Punti: ' + score, 28, 185);
+      hudCtx.font = 'bold 30px Arial';
+      hudCtx.fillText('Punti: ' + score, 28, 205);
 
+      // INCLINAZIONE
       const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
-      hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 22px Arial';
-      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 240);
+      hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial';
+      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 250);
 
       hudTexture.needsUpdate = true;
     }
@@ -554,7 +609,7 @@
           if (hitBtn.userData.action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (hitBtn.userData.action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (hitBtn.userData.action === 'toggle_laser') { toggleLaser(); }
-          else if (hitBtn.userData.action === 'toggle_start') { if (gameState === 'LOBBY') startGame(); else stopGame(); }
+          else if (hitBtn.userData.action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
           const animal = activeAnimals.find(a => a === hit.object);
           if (animal && animal.userData.active) {
@@ -628,20 +683,41 @@
       const delta = clock.getDelta();
 
       if (gameState === 'PLAYING') {
+        survivalTime += delta;
+
+        // INCREMENTO PROGRESSIVO DELLA DIFFICOLTÀ
+        difficultyMultiplier = 1.0 + (survivalTime * 0.03); // Velocità cresce del 3% ogni secondo
+        const currentSpawnInterval = Math.max(0.8, baseSpawnInterval - (survivalTime * 0.02)); // Spawn fino a ogni 0.8s
+
         spawnTimer += delta;
-        if (spawnTimer >= SPAWN_INTERVAL) {
+        if (spawnTimer >= currentSpawnInterval) {
           spawnTimer = 0;
           spawnAnimalFromOutside();
         }
 
+        // Movimento Orizzontale sulla linea centrale
         for (let i = activeAnimals.length - 1; i >= 0; i--) {
           const a = activeAnimals[i];
-          const moveStep = a.userData.dir.clone().multiplyScalar(a.userData.speed * delta);
-          a.position.add(moveStep);
+          a.position.x += a.userData.dirX * a.userData.speed * delta;
 
           a.lookAt(camera.position.x, a.position.y, camera.position.z);
 
-          if (a.position.distanceTo(a.userData.startPos) > 8.0) {
+          // CONTROLLO AREA CENTRALE (Z = -2.5, |X| < 0.3): RILASCIO CACCA
+          if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.3) {
+            a.userData.hasPooped = true;
+            createPoopModel(a.position.x, a.position.z);
+            updateHudTexture();
+
+            // SCONFITTA A 5 CACCHE
+            if (poops.length >= MAX_POOPS) {
+              gameOver();
+              break;
+            }
+          }
+
+          // Rimuove se esce dal lato opposto
+          if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
+              (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
             scene.remove(a);
             a.geometry.dispose();
             a.material.dispose();
@@ -649,6 +725,7 @@
           }
         }
 
+        // Volo ragdoll colpiti
         for (let i = flyingRagdolls.length - 1; i >= 0; i--) {
           const ragdoll = flyingRagdolls[i];
           ragdoll.life -= delta;
@@ -667,6 +744,8 @@
             flyingRagdolls.splice(i, 1);
           }
         }
+
+        updateHudTexture();
       }
 
       updateTracers(delta);

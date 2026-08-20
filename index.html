@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.9.0";
+    const GAME_VERSION = "v3.11.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -91,7 +91,9 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    const AVAILABLE_IMAGES = ['a21', 'b21'];
+    
+    // AGGIUNTO C41 ALL'ARRAY DEGLI ANIMALI DISPONIBILI
+    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41'];
 
     const SIZE_MAP = {
       1: { scale: 0.35, points: 200, speed: 1.4 },
@@ -375,14 +377,12 @@
         logoMesh.scale.set(0.8 * aspectRatio, 0.8, 1);
         logoMat.needsUpdate = true;
       }, undefined, () => {
-        // Fallback Canvas Logo con Versione Inclusa
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 256;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = 'rgba(20, 40, 20, 0.9)'; ctx.fillRect(10, 10, 492, 236);
         ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 236);
         
-        // Stampiamo la versione in alto a destra nel riquadro del titolo
         ctx.fillStyle = '#888888'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'right';
         ctx.fillText(GAME_VERSION, 480, 35);
 
@@ -444,8 +444,6 @@
 
     function create3DHUD() {
       const hudGroup = new THREE.Group();
-      
-      // HUD ABBASSATO A 0.85 METRI
       hudGroup.position.set(-0.8, 0.85, -2.5);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
@@ -751,7 +749,7 @@
         survivalTime += delta;
 
         difficultyMultiplier = 1.0 + (survivalTime * 0.03);
-        const currentSpawnInterval = Math.max(0.3, 1.5 - (survivalTime * 0.01));
+        const currentSpawnInterval = Math.max(0.3, 1.0 - (survivalTime * 0.01));
 
         spawnTimer += delta;
         if (spawnTimer >= currentSpawnInterval) {

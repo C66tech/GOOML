@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.25.0";
+    const GAME_VERSION = "v3.24.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -67,13 +67,12 @@
     let lawnMesh = null;
     let fenceGroup = null;
     let hudGroup = null;
-    let flowers = []; // Array for flowers
     
     let gameState = 'LOBBY';
 
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
-    let activeHand = 'right';
+    let activeHand = 'right'; // Start with Right hand
 
     let controllerRight = null;
     let controllerLeft = null;
@@ -138,7 +137,6 @@
       scene.add(dirLight);
 
       createLawnAndFence();
-      createFlowers(); // Genera i fiori
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
@@ -173,6 +171,7 @@
       setupControllers();
       create3DHUD();
       createPresentationLogo();
+      // Initialize Hand Visibility
       updateGunVisibility();
       updateGunRotation();
 
@@ -211,55 +210,40 @@
         const sideGroup = new THREE.Group();
         sideGroup.position.set(...s.pos);
         sideGroup.rotation.y = s.rot;
+
         for (let x = -halfSize; x <= halfSize; x += 1.0) {
           const post = new THREE.Mesh(postGeo, woodMat);
           post.position.set(x, 0.225, 0);
           sideGroup.add(post);
         }
+
         const p1 = new THREE.Mesh(plankGeo, woodMat);
         p1.position.set(0, 0.15, 0);
         const p2 = new THREE.Mesh(plankGeo, woodMat);
         p2.position.set(0, 0.32, 0);
         sideGroup.add(p1, p2);
+
         fenceGroup.add(sideGroup);
       });
+
       scene.add(fenceGroup);
-    }
-
-    // NUOVA FUNZIONE PER CREARE I FIORI
-    function createFlowers() {
-      const tex = textureLoader.load('fiori.png');
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const geo = new THREE.PlaneGeometry(0.3, 0.3); // Dimensione taglia 1
-      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
-
-      for(let i = 0; i < 10; i++) {
-        const flower = new THREE.Mesh(geo, mat);
-        // Posizionamento casuale entro i limiti del prato (3x3 centrato su 0, -3)
-        const x = (Math.random() - 0.5) * 2.4;
-        const z = -3.0 + (Math.random() - 0.5) * 2.4;
-        flower.position.set(x, 0.15, z);
-        flower.userData = {
-           baseY: 0.15,
-           wobbleSpeed: 4 + Math.random() * 2
-        };
-        scene.add(flower);
-        flowers.push(flower);
-      }
     }
 
     function createPoopModel(x, z, scaleFactor = 1.0) {
       const poopGroup = new THREE.Group();
       const mat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.9 });
+      
       const b1 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.04, 8), mat);
       b1.position.y = 0.02;
       const b2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.03, 8), mat);
       b2.position.y = 0.05;
       const b3 = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.04, 8), mat);
       b3.position.y = 0.08;
+
       poopGroup.add(b1, b2, b3);
       poopGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
       poopGroup.position.set(x, 0, z);
+      
       scene.add(poopGroup);
       poops.push(poopGroup);
     }
@@ -362,7 +346,6 @@
 
     function create3DHUD() {
       hudGroup = new THREE.Group();
-      // HUD spostato più a sinistra e più in basso
       hudGroup.position.set(-1.0, 0.4, -1.2);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(25);
 
@@ -387,7 +370,7 @@
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnHandToggleMesh = create3DButton("Left Hand", 0.28, 0.11, "#00ffff");
+      btnHandToggleMesh = create3DButton("Use Left Hand", 0.28, 0.11, "#00ffff");
       btnHandToggleMesh.position.set(0.35, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
       hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
@@ -463,6 +446,7 @@
 
     function onXRShoot(event) {
       const controller = event.target;
+      // VERIFY ACTIVE HAND
       if (activeHand === 'right' && controller !== controllerRight) return;
       if (activeHand === 'left' && controller !== controllerLeft) return;
 
@@ -520,13 +504,8 @@
     function animate() {
       const delta = clock.getDelta();
       const time = clock.getElapsedTime();
-      
-      // ANIMAZIONE FIORI
-      flowers.forEach(f => {
-         f.position.y = f.userData.baseY + Math.sin(time * f.userData.wobbleSpeed) * 0.02;
-      });
-
       if (gameState === 'PLAYING') {
+         // (Game logic kept for conciseness)
          survivalTime += delta;
          difficultyMultiplier = 1.0 + (survivalTime * 0.03);
          const currentSpawnInterval = Math.max(0.3, 1.0 - (survivalTime * 0.01));

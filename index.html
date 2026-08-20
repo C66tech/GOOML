@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.22.0";
+    const GAME_VERSION = "v3.21.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -66,11 +66,8 @@
     let score = 0;
     let lawnMesh = null;
     let fenceGroup = null;
-    let hudGroup = null; // Defined globally to be grabbable
     
     let gameState = 'LOBBY';
-    let isDraggingHud = false;
-    let draggingController = null;
 
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
@@ -157,6 +154,11 @@
         const session = renderer.xr.getSession();
         controls.enabled = false;
         cameraRig.position.set(0, 0, 0);
+
+        if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
+          scene.background = null;
+          if (lawnMesh) lawnMesh.visible = true;
+        }
       });
 
       renderer.xr.addEventListener('sessionend', () => {
@@ -164,6 +166,9 @@
         cameraRig.position.set(0, 1.6, 0);
         controls.target.set(0, 0, -2.5);
         controls.update();
+
+        scene.background = new THREE.Color(0x1a2634);
+        if (lawnMesh) lawnMesh.visible = true;
       });
 
       const xrOptions = { requiredFeatures: ['local-floor'] };
@@ -188,7 +193,11 @@
 
     function createLawnAndFence() {
       const lawnGeo = new THREE.PlaneGeometry(3.0, 3.0);
-      const lawnMat = new THREE.MeshStandardMaterial({ color: 0x38761d, roughness: 0.9, metalness: 0.1 });
+      const lawnMat = new THREE.MeshStandardMaterial({ 
+        color: 0x38761d, 
+        roughness: 0.9,
+        metalness: 0.1
+      });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
       lawnMesh.rotation.x = -Math.PI / 2;
       lawnMesh.position.set(0, 0, -3.0);
@@ -196,6 +205,7 @@
 
       fenceGroup = new THREE.Group();
       const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+
       const halfSize = 1.5;
       const postGeo = new THREE.BoxGeometry(0.06, 0.45, 0.06);
       const plankGeo = new THREE.BoxGeometry(3.0, 0.08, 0.02);
@@ -256,7 +266,9 @@
       spawnTimer = 0;
       survivalTime = 0;
       difficultyMultiplier = 1.0;
+      
       if (logoMesh) logoMesh.visible = false;
+
       updateHudTexture();
       update3DButtonText(btnStartMesh, "⏹ STOP GAME", "#ff2a6d");
     }
@@ -264,7 +276,9 @@
     function stopGame() {
       cleanupGame();
       gameState = 'LOBBY';
+      
       if (logoMesh) logoMesh.visible = true;
+
       updateHudTexture();
       update3DButtonText(btnStartMesh, "▶ START GAME", "#00ffcc");
     }
@@ -282,37 +296,78 @@
     }
 
     function cleanupGame() {
-      activeAnimals.forEach(a => { scene.remove(a); a.geometry.dispose(); a.material.dispose(); });
+      activeAnimals.forEach(a => {
+        scene.remove(a);
+        a.geometry.dispose();
+        a.material.dispose();
+      });
       activeAnimals = [];
-      flyingRagdolls.forEach(f => { scene.remove(f.mesh); f.mesh.geometry.dispose(); f.mesh.material.dispose(); });
+
+      flyingRagdolls.forEach(f => {
+        scene.remove(f.mesh);
+        f.mesh.geometry.dispose();
+        f.mesh.material.dispose();
+      });
       flyingRagdolls = [];
-      poops.forEach(p => { scene.remove(p); p.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); }); });
+
+      poops.forEach(p => {
+        scene.remove(p);
+        p.traverse(c => { if(c.geometry) c.geometry.dispose(); if(c.material) c.material.dispose(); });
+      });
       poops = [];
     }
 
     function spawnAnimalFromOutside() {
       if (AVAILABLE_IMAGES.length === 0) return;
+
       const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
+      const animalType = baseName.charAt(0);
       const sizeDigit = parseInt(baseName.charAt(1), 10) || 2;
+      const frame2Name = `${animalType}${sizeDigit}2`;
+
       const sizeData = SIZE_MAP[sizeDigit] || SIZE_MAP[2];
 
+      const texFrame1 = getAnimalTexture(baseName);
+      const texFrame2 = getAnimalTexture(frame2Name);
+
       const planeGeo = new THREE.PlaneGeometry(sizeData.scale, sizeData.scale);
-      const planeMat = new THREE.MeshBasicMaterial({ map: getAnimalTexture(baseName), transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
+      const planeMat = new THREE.MeshBasicMaterial({
+        map: texFrame1,
+        transparent: true,
+        alphaTest: 0.1,
+        side: THREE.DoubleSide
+      });
+
       const animalMesh = new THREE.Mesh(planeGeo, planeMat);
 
       const fromLeft = Math.random() > 0.5;
-      const startX = fromLeft ? -3.0 : 3.0;
+      const spawnDistance = 3.0; // 1.5m away from the 1.5m boundary
+      const startX = fromLeft ? -spawnDistance : spawnDistance;
+      const targetX = fromLeft ? 2.0 : -2.0;
       const trackZ = -3.0 + (Math.random() - 0.5) * 1.5;
+      const poopTargetX = (Math.random() - 0.5) * 0.6;
 
-      if (fromLeft) animalMesh.scale.x = -1;
+      if (fromLeft) {
+        animalMesh.scale.x = -1; 
+      }
+
       animalMesh.position.set(startX, sizeData.scale / 2, trackZ);
 
       animalMesh.userData = {
-        active: true, points: sizeData.points, speed: sizeData.speed * difficultyMultiplier,
-        dirX: fromLeft ? 1 : -1, targetX: fromLeft ? 2.0 : -2.0, poopTargetX: (Math.random() - 0.5) * 0.6,
-        state: 'WALKING_IN', baseY: sizeData.scale / 2, wobbleSpeed: 12 + Math.random() * 6,
-        sizeScaleFactor: sizeData.scale / 0.55, texFrame2: getAnimalTexture(`${baseName.charAt(0)}${sizeDigit}2`)
+        active: true,
+        points: sizeData.points,
+        speed: sizeData.speed * difficultyMultiplier,
+        dirX: fromLeft ? 1 : -1,
+        targetX: targetX,
+        poopTargetX: poopTargetX,
+        state: 'WALKING_IN',
+        poopTimer: 0,
+        baseY: sizeData.scale / 2,
+        wobbleSpeed: 12 + Math.random() * 6,
+        sizeScaleFactor: sizeData.scale / 0.55,
+        texFrame2: texFrame2
       };
+
       scene.add(animalMesh);
       activeAnimals.push(animalMesh);
     }
@@ -320,22 +375,44 @@
     function createPresentationLogo() {
       const logoGeo = new THREE.PlaneGeometry(1, 1);
       const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
+
       logoMesh = new THREE.Mesh(logoGeo, logoMat);
       logoMesh.position.set(0, 1.0, -3.0);
       scene.add(logoMesh);
-      textureLoader.load('logo.png', (texture) => { logoMat.map = texture; logoMesh.scale.set(0.8, 0.8, 1); }, undefined, () => {
-        const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 360;
+
+      textureLoader.load('logo.png', (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        logoMat.map = texture;
+        const aspectRatio = texture.image.width / texture.image.height;
+        logoMesh.scale.set(0.8 * aspectRatio, 0.8, 1);
+        logoMat.needsUpdate = true;
+      }, undefined, () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 360;
         const ctx = canvas.getContext('2d');
+        
         ctx.fillStyle = 'rgba(20, 40, 20, 0.95)'; ctx.fillRect(10, 10, 492, 340);
         ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 340);
-        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY LAWN!', 256, 50);
+        
+        ctx.fillStyle = '#888888'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'right';
+        ctx.fillText(GAME_VERSION, 480, 35);
+
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; 
+        ctx.fillText('GET OFF OF MY LAWN!', 256, 50);
+
         ctx.fillStyle = '#00ff66'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'left';
         ctx.fillText('GAME RULES:', 30, 85);
+
         ctx.fillStyle = '#ffffff'; ctx.font = '14px Arial';
-        ctx.fillText('• Squeeze to GRAB/MOVE HUD.', 30, 115);
-        ctx.fillText('• Shoot animals ONLY inside fence.', 30, 140);
-        ctx.fillText('• Hit outside = Habitat demerit.', 30, 165);
+        ctx.fillText('• Defend lawn: max 5 poops (Game Over).', 30, 115);
+        ctx.fillText('• Shoot animals ONLY at the fence (inside).', 30, 140);
+        ctx.fillText('• Hit outside = Demerit note (Wildlife habitat).', 30, 165);
+        ctx.fillText('• 4 Sizes: from 1 (hare, fast) to 4 (horse).', 30, 190);
+        ctx.fillText('• Use the active hand trigger (from HUD).', 30, 215);
+
         logoMat.map = new THREE.CanvasTexture(canvas);
+        logoMesh.scale.set(1.6, 1.12, 1);
+        logoMat.needsUpdate = true;
       });
     }
 
@@ -344,8 +421,69 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
+    function playGunshotSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const bufferSize = audioCtx.sampleRate * 0.12;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, now);
+      filter.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(1.0, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+      noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+      noise.start(now);
+    }
+
+    function playPoopSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+
+      gain.gain.setValueAtTime(0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.15);
+    }
+
+    function playYeetSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+
+      gain.gain.setValueAtTime(0.7, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.25);
+    }
+
     function create3DHUD() {
-      hudGroup = new THREE.Group(); // Assigned to global variable
+      const hudGroup = new THREE.Group();
+      // Posizione sinistra: x = -0.6
       hudGroup.position.set(-0.6, 0.6, -1.2);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(20);
 
@@ -385,7 +523,7 @@
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
-      scene.add(hudGroup); 
+      cameraRig.add(hudGroup); 
     }
 
     function toggleLaser() {
@@ -394,37 +532,127 @@
       update3DButtonText(btnLaserMesh, laserEnabled ? "Laser: ON" : "Laser: OFF", "#ff0000");
     }
 
+    function updateHudTexture() {
+      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 600, 340);
+      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 592, 332);
+
+      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
+
+      hudCtx.fillStyle = '#888888'; hudCtx.font = 'bold 16px Arial';
+      hudCtx.fillText(GAME_VERSION, 510, 40);
+
+      const mins = Math.floor(survivalTime / 60);
+      const secs = Math.floor(survivalTime % 60);
+      const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 20px Arial';
+      hudCtx.fillText('Defense Time: ' + timeStr, 28, 75);
+
+      if (gameState === 'GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial';
+        hudCtx.fillText('Your garden is a latrine!', 28, 120);
+      } else if (gameState === 'HABITAT_GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 20px Arial';
+        hudCtx.fillText('Demerit: attacking wildlife', 28, 110);
+        hudCtx.fillText('in its own natural habitat!', 28, 138);
+      } else {
+        hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
+        hudCtx.font = 'bold 20px Arial';
+        hudCtx.fillText('Status: ' + (gameState === 'PLAYING' ? 'DEFENDING' : 'LOBBY / PAUSE'), 28, 120);
+      }
+
+      hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
+      hudCtx.font = 'bold 22px Arial';
+      hudCtx.fillText(`Poop on lawn: ${poops.length} / ${MAX_POOPS}`, 28, 165);
+
+      hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
+      hudCtx.font = 'bold 28px Arial';
+      hudCtx.fillText('Score: ' + score, 28, 215);
+
+      const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
+      hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial';
+      hudCtx.fillText('Pitch: ' + degPitch + '°', 28, 260);
+
+      hudTexture.needsUpdate = true;
+    }
+
+    function create3DButton(label, width, height, strokeColor = '#00ff66') {
+      const btnCanvas = document.createElement('canvas');
+      btnCanvas.width = 300; btnCanvas.height = 100;
+      const ctx = btnCanvas.getContext('2d');
+      ctx.fillStyle = '#142a14'; ctx.fillRect(0, 0, 300, 100);
+      ctx.strokeStyle = strokeColor; ctx.lineWidth = 6; ctx.strokeRect(4, 4, 292, 92);
+      ctx.fillStyle = strokeColor; ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 150, 50);
+
+      const btnTex = new THREE.CanvasTexture(btnCanvas);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.04), new THREE.MeshStandardMaterial({ map: btnTex, roughness: 0.3 }));
+      mesh.userData = { canvas: btnCanvas, ctx: ctx, texture: btnTex };
+      return mesh;
+    }
+
+    function update3DButtonText(btnMesh, label, colorHex = '#00ff66') {
+      const ctx = btnMesh.userData.ctx;
+      ctx.fillStyle = '#142a14'; ctx.fillRect(0, 0, 300, 100);
+      ctx.strokeStyle = colorHex; ctx.lineWidth = 6; ctx.strokeRect(4, 4, 292, 92);
+      ctx.fillStyle = colorHex; ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 150, 50);
+      btnMesh.userData.texture.needsUpdate = true;
+    }
+
+    function createRedGunModel() {
+      const gunGroup = new THREE.Group();
+      const redGunMat = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.2, metalness: 0.5 });
+      const blackDetailMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.6 });
+
+      const barrelGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.26, 16);
+      barrelGeo.rotateX(Math.PI / 2);
+      const barrel = new THREE.Mesh(barrelGeo, redGunMat);
+      barrel.position.set(0, 0, -0.1);
+      gunGroup.add(barrel);
+
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.12, 0.04), blackDetailMat);
+      handle.position.set(0, -0.05, 0.02); handle.rotation.x = -0.3;
+      gunGroup.add(handle);
+
+      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.015, 0.003, 8, 24), blackDetailMat);
+      ringMesh.position.set(0, 0.032, 0.02);
+      gunGroup.add(ringMesh);
+
+      const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.012, 0.004), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+      frontSight.position.set(0, 0.026, -0.22);
+      gunGroup.add(frontSight);
+
+      const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -0.23), new THREE.Vector3(0, 0, -15)]);
+      const laserMat = new THREE.LineBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6 });
+      const laserLine = new THREE.Line(laserGeo, laserMat);
+      laserLine.visible = laserEnabled;
+      gunGroup.add(laserLine);
+      laserLines.push(laserLine);
+
+      return gunGroup;
+    }
+
     function setupControllers() {
       for (let i = 0; i < 2; i++) {
         const controller = renderer.xr.getController(i);
         const pivot = new THREE.Group();
-        pivot.add(createRedGunModel());
+        const gun = createRedGunModel();
+        pivot.add(gun);
         controller.add(pivot);
-        
         controller.addEventListener('selectstart', onXRShoot);
-        
-        // GRAB LOGIC
-        controller.addEventListener('squeezestart', (e) => {
-           const raycaster = new THREE.Raycaster();
-           const tempMat = new THREE.Matrix4().identity().extractRotation(controller.matrixWorld);
-           raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-           raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMat);
-           
-           if (raycaster.intersectObject(hudGroup, true).length > 0) {
-             isDraggingHud = true;
-             draggingController = controller;
-           }
-        });
-
-        controller.addEventListener('squeezeend', () => {
-           isDraggingHud = false;
-           draggingController = null;
-        });
 
         controller.addEventListener('connected', (event) => {
-          if (event.data.handedness === 'right') controllerRight = controller;
-          else if (event.data.handedness === 'left') controllerLeft = controller;
+          if (event.data.handedness === 'right') {
+            controllerRight = controller;
+          } else if (event.data.handedness === 'left') {
+            controllerLeft = controller;
+          }
           updateGunVisibility();
+        });
+
+        controller.addEventListener('disconnected', () => {
+          if (controller === controllerRight) controllerRight = null;
+          if (controller === controllerLeft) controllerLeft = null;
         });
         
         cameraRig.add(controller);
@@ -434,84 +662,237 @@
     }
 
     function updateGunVisibility() {
-      if (controllerRight) controllerRight.visible = (activeHand === 'destra');
-      if (controllerLeft) controllerLeft.visible = (activeHand === 'sinistra');
+      if (controllerRight) {
+        controllerRight.visible = (activeHand === 'destra');
+      }
+      if (controllerLeft) {
+        controllerLeft.visible = (activeHand === 'sinistra');
+      }
+      
+      if (!controllerRight && !controllerLeft && controllers.length >= 2) {
+        controllers[0].visible = (activeHand === 'destra');
+        controllers[1].visible = (activeHand === 'sinistra');
+      }
     }
 
-    function update3DButtonText(btnMesh, label, colorHex = '#00ff66') {
-      const ctx = btnMesh.userData.ctx;
-      ctx.fillStyle = '#142a14'; ctx.fillRect(0, 0, 300, 100);
-      ctx.strokeStyle = colorHex; ctx.lineWidth = 6; ctx.strokeRect(4, 4, 292, 92);
-      ctx.fillStyle = colorHex; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 150, 50);
-      btnMesh.userData.texture.needsUpdate = true;
+    function toggleHand() {
+      activeHand = (activeHand === 'destra') ? 'sinistra' : 'destra';
+      updateGunVisibility();
+      
+      const nextLabel = (activeHand === 'destra') ? "Left Hand" : "Right Hand";
+      update3DButtonText(btnHandToggleMesh, nextLabel, "#00ffff");
     }
 
-    function createRedGunModel() {
-      const gunGroup = new THREE.Group();
-      const mat = new THREE.MeshStandardMaterial({ color: 0xe60000, roughness: 0.2 });
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 16).rotateX(Math.PI/2), mat);
-      barrel.position.z = -0.1;
-      gunGroup.add(barrel);
-      const laser = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-15)]), new THREE.LineBasicMaterial({ color: 0xff0000 }));
-      laser.visible = laserEnabled;
-      gunGroup.add(laser);
-      laserLines.push(laser);
-      return gunGroup;
+    function updateGunRotation() {
+      gunPivots.forEach(pivot => { pivot.rotation.x = currentGunPitch; });
+      updateHudTexture();
     }
 
     function onXRShoot(event) {
       const controller = event.target;
+      
       if (activeHand === 'destra' && controller !== controllerRight && controller !== controllers[0]) return;
       if (activeHand === 'sinistra' && controller !== controllerLeft && controller !== controllers[1]) return;
+
       const pivot = controller.children.find(c => gunPivots.includes(c));
-      const origin = new THREE.Vector3(); const worldQuat = new THREE.Quaternion();
-      pivot.getWorldPosition(origin); pivot.getWorldQuaternion(worldQuat);
-      processShot(origin, new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat));
+      if (!pivot) return;
+
+      const origin = new THREE.Vector3();
+      const worldQuat = new THREE.Quaternion();
+      pivot.getWorldPosition(origin);
+      pivot.getWorldQuaternion(worldQuat);
+
+      const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat);
+      processShot(origin, direction);
+    }
+
+    function onDesktopShoot(event) {
+      if (renderer.xr.isPresenting) return;
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1);
+      raycaster.setFromCamera(mouse, camera);
+      processShot(raycaster.ray.origin, raycaster.ray.direction);
     }
 
     function processShot(origin, direction) {
       playGunshotSound();
+
       const raycaster = new THREE.Raycaster(origin, direction);
-      const hits = raycaster.intersectObjects([...activeAnimals.filter(a => a.userData.active), ...hudButtons], false);
-      if (hits.length > 0) {
-        const hit = hits[0];
-        if (hudButtons.includes(hit.object)) {
-          const act = hit.object.userData.action;
-          if (act === 'pitch_down') { currentGunPitch += 0.017; updateGunRotation(); }
-          else if (act === 'pitch_up') { currentGunPitch -= 0.017; updateGunRotation(); }
-          else if (act === 'toggle_hand') { activeHand = activeHand === 'destra' ? 'sinistra' : 'destra'; updateGunVisibility(); update3DButtonText(btnHandToggleMesh, activeHand === 'destra' ? "Left Hand" : "Right Hand", "#00ffff"); }
-          else if (act === 'toggle_laser') toggleLaser();
-          else if (act === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
+      const candidates = [...activeAnimals.filter(a => a.userData.active), ...hudButtons];
+
+      const intersects = raycaster.intersectObjects(candidates, false);
+      let endPoint = origin.clone().add(direction.clone().multiplyScalar(25));
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        endPoint = hit.point;
+
+        const hitBtn = hudButtons.find(b => b === hit.object);
+        if (hitBtn) {
+          const action = hitBtn.userData.action;
+          if (action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (action === 'toggle_hand') { toggleHand(); }
+          else if (action === 'toggle_laser') { toggleLaser(); }
+          else if (action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
-           if (Math.abs(hit.object.position.x) > 1.5) triggerHabitatGameOver();
-           else { score += hit.object.userData.points; playYeetSound(); hit.object.userData.active = false; activeAnimals.splice(activeAnimals.indexOf(hit.object), 1); scene.remove(hit.object); }
+          const animal = activeAnimals.find(a => a === hit.object);
+          if (animal && animal.userData.active) {
+            
+            if (animal.userData.state === 'WALKING_IN' && Math.abs(animal.position.x) > 1.5) {
+              triggerHabitatGameOver();
+              return;
+            }
+
+            score += animal.userData.points;
+            updateHudTexture();
+            playYeetSound();
+
+            animal.userData.active = false;
+            const idx = activeAnimals.indexOf(animal);
+            if (idx !== -1) activeAnimals.splice(idx, 1);
+
+            animal.material.map = animal.userData.texFrame2;
+            animal.material.needsUpdate = true;
+
+            const pushDir = direction.clone().normalize();
+            const impulse = new THREE.Vector3(
+              pushDir.x * 6.5,
+              5.0 + Math.random() * 2.0,
+              pushDir.z * 6.5
+            );
+
+            flyingRagdolls.push({
+              mesh: animal,
+              velocity: impulse,
+              rotVelocityZ: (Math.random() - 0.5) * 25,
+              life: 3.0
+            });
+          }
         }
       }
-      createTracer(origin, origin.clone().add(direction.multiplyScalar(20)));
+
+      createTracer(origin, endPoint);
     }
 
-    function updateHudTexture() {
-      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 600, 340);
-      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 592, 332);
-      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
-      hudCtx.fillStyle = '#00ffff'; hudCtx.fillText('Time: ' + Math.floor(survivalTime/60)+':'+Math.floor(survivalTime%60), 28, 75);
-      hudCtx.fillStyle = '#00ff66'; hudCtx.fillText('Status: ' + (gameState === 'PLAYING' ? 'DEFENDING' : 'LOBBY'), 28, 110);
-      hudCtx.fillStyle = '#ffcc00'; hudCtx.fillText('Poop: ' + poops.length + '/' + MAX_POOPS, 28, 145);
-      hudCtx.fillStyle = '#00ff66'; hudCtx.fillText('Score: ' + score, 28, 180);
-      hudTexture.needsUpdate = true;
+    function createTracer(start, end) {
+      const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+      const mat = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 1.0 });
+      const line = new THREE.Line(geo, mat);
+      line.userData = { life: 0.06 };
+      scene.add(line);
+      tracers.push(line);
     }
 
-    function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
-    
+    function updateTracers(delta) {
+      for (let i = tracers.length - 1; i >= 0; i--) {
+        const tracer = tracers[i];
+        tracer.userData.life -= delta;
+        if (tracer.userData.life <= 0) {
+          scene.remove(tracer);
+          tracer.geometry.dispose();
+          tracer.material.dispose();
+          tracers.splice(i, 1);
+        } else {
+          tracer.material.opacity = tracer.userData.life / 0.06;
+        }
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
     function animate() {
       const delta = clock.getDelta();
-      // DRAG LOGIC
-      if (isDraggingHud && draggingController) {
-        hudGroup.position.copy(draggingController.position);
-        hudGroup.quaternion.copy(draggingController.quaternion);
+      const time = clock.getElapsedTime();
+
+      if (renderer.xr.isPresenting) {
+        if (camera.position.y < 0.5 && cameraRig.position.y === 0) {
+          cameraRig.position.y = 1.6;
+        }
       }
-      
-      // ... (Game Loop Logic omitted for brevity, logic remains identical) ...
+
+      if (gameState === 'PLAYING') {
+        survivalTime += delta;
+
+        difficultyMultiplier = 1.0 + (survivalTime * 0.03);
+        const currentSpawnInterval = Math.max(0.3, 1.0 - (survivalTime * 0.01));
+
+        spawnTimer += delta;
+        if (spawnTimer >= currentSpawnInterval) {
+          spawnTimer = 0;
+          spawnAnimalFromOutside();
+        }
+
+        for (let i = activeAnimals.length - 1; i >= 0; i--) {
+          const a = activeAnimals[i];
+
+          if (a.userData.state === 'WALKING_IN') {
+            a.position.x += a.userData.dirX * a.userData.speed * delta;
+            a.position.y = a.userData.baseY + Math.sin(time * a.userData.wobbleSpeed) * 0.04;
+
+            const reachedTarget = (a.userData.dirX > 0 && a.position.x >= a.userData.poopTargetX) ||
+                                  (a.userData.dirX < 0 && a.position.x <= a.userData.poopTargetX);
+            
+            if (reachedTarget) {
+              a.position.x = a.userData.poopTargetX;
+              a.position.y = a.userData.baseY;
+              a.userData.state = 'POOPING';
+              a.userData.poopTimer = 0.5;
+            }
+          } 
+          else if (a.userData.state === 'POOPING') {
+            a.userData.poopTimer -= delta;
+            if (a.userData.poopTimer <= 0) {
+              createPoopModel(a.position.x, a.position.z, a.userData.sizeScaleFactor);
+              playPoopSound();
+              
+              a.userData.state = 'WALKING_OUT';
+              updateHudTexture();
+
+              if (poops.length >= MAX_POOPS) {
+                triggerGameOver();
+              }
+            }
+          } 
+          else if (a.userData.state === 'WALKING_OUT') {
+            a.position.x += a.userData.dirX * a.userData.speed * delta;
+            a.position.y = a.userData.baseY + Math.sin(time * a.userData.wobbleSpeed) * 0.04;
+          }
+
+          if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
+              (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
+            scene.remove(a);
+            a.geometry.dispose();
+            a.material.dispose();
+            activeAnimals.splice(i, 1);
+          }
+        }
+
+        for (let i = flyingRagdolls.length - 1; i >= 0; i--) {
+          const ragdoll = flyingRagdolls[i];
+          ragdoll.life -= delta;
+
+          ragdoll.velocity.y -= 9.8 * delta;
+          ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
+          
+          ragdoll.mesh.rotation.z += ragdoll.rotVelocityZ * delta;
+
+          if (ragdoll.mesh.position.y <= -0.5 || ragdoll.life <= 0) {
+            scene.remove(ragdoll.mesh);
+            ragdoll.mesh.geometry.dispose();
+            ragdoll.mesh.material.dispose();
+            flyingRagdolls.splice(i, 1);
+          }
+        }
+
+        updateHudTexture();
+      }
+
+      updateTracers(delta);
       renderer.render(scene, camera);
     }
   </script>

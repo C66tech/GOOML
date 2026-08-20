@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.7.0";
+    const GAME_VERSION = "v3.9.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -71,7 +71,7 @@
 
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
-    let activeHand = 'destra'; // 'destra' o 'sinistra'
+    let activeHand = 'destra';
 
     let audioCtx = null;
 
@@ -144,7 +144,7 @@
 
       controls = new OrbitControls(camera, renderer.domElement);
       cameraRig.position.set(0, 1.6, 0); 
-      controls.target.set(0, 0, -5.5);
+      controls.target.set(0, 0, -2.5);
       controls.update();
 
       renderer.xr.addEventListener('sessionstart', () => {
@@ -154,14 +154,14 @@
 
         if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
           scene.background = null;
-          if (lawnMesh) lawnMesh.visible = false;
+          if (lawnMesh) lawnMesh.visible = true;
         }
       });
 
       renderer.xr.addEventListener('sessionend', () => {
         controls.enabled = true;
         cameraRig.position.set(0, 1.6, 0);
-        controls.target.set(0, 0, -5.5);
+        controls.target.set(0, 0, -2.5);
         controls.update();
 
         scene.background = new THREE.Color(0x1a2634);
@@ -189,8 +189,7 @@
     }
 
     function createLawnAndFence() {
-      // PRATO SPOSTATO 3 METRI PIÙ AVANTI (Z = -5.5)
-      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
+      const lawnGeo = new THREE.PlaneGeometry(3.0, 3.0);
       const lawnMat = new THREE.MeshStandardMaterial({ 
         color: 0x38761d, 
         roughness: 0.9,
@@ -198,21 +197,21 @@
       });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
       lawnMesh.rotation.x = -Math.PI / 2;
-      lawnMesh.position.set(0, 0, -5.5);
+      lawnMesh.position.set(0, 0, -3.0);
       scene.add(lawnMesh);
 
       fenceGroup = new THREE.Group();
       const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
 
-      const halfSize = 2.5;
+      const halfSize = 1.5;
       const postGeo = new THREE.BoxGeometry(0.06, 0.45, 0.06);
-      const plankGeo = new THREE.BoxGeometry(5.0, 0.08, 0.02);
+      const plankGeo = new THREE.BoxGeometry(3.0, 0.08, 0.02);
 
       const sides = [
-        { rot: 0, pos: [0, 0, -5.5 - halfSize] },
-        { rot: Math.PI / 2, pos: [halfSize, 0, -5.5] },
-        { rot: 0, pos: [0, 0, -5.5 + halfSize] },
-        { rot: Math.PI / 2, pos: [-halfSize, 0, -5.5] }
+        { rot: 0, pos: [0, 0, -3.0 - halfSize] },
+        { rot: Math.PI / 2, pos: [halfSize, 0, -3.0] },
+        { rot: 0, pos: [0, 0, -3.0 + halfSize] },
+        { rot: Math.PI / 2, pos: [-halfSize, 0, -3.0] }
       ];
 
       sides.forEach(s => {
@@ -332,10 +331,10 @@
       const animalMesh = new THREE.Mesh(planeGeo, planeMat);
 
       const fromLeft = Math.random() > 0.5;
-      const startX = fromLeft ? -3.2 : 3.2;
-      const targetX = fromLeft ? 3.2 : -3.2;
-      const trackZ = -5.5 + (Math.random() - 0.5) * 3.0;
-      const poopTargetX = (Math.random() - 0.5) * 1.0;
+      const startX = fromLeft ? -2.0 : 2.0;
+      const targetX = fromLeft ? 2.0 : -2.0;
+      const trackZ = -3.0 + (Math.random() - 0.5) * 1.5;
+      const poopTargetX = (Math.random() - 0.5) * 0.6;
 
       if (fromLeft) {
         animalMesh.scale.x = -1; 
@@ -366,7 +365,7 @@
       const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
 
       logoMesh = new THREE.Mesh(logoGeo, logoMat);
-      logoMesh.position.set(0, 1.0, -5.2);
+      logoMesh.position.set(0, 1.0, -3.0);
       scene.add(logoMesh);
 
       textureLoader.load('logo.png', (texture) => {
@@ -376,13 +375,20 @@
         logoMesh.scale.set(0.8 * aspectRatio, 0.8, 1);
         logoMat.needsUpdate = true;
       }, undefined, () => {
+        // Fallback Canvas Logo con Versione Inclusa
         const canvas = document.createElement('canvas');
         canvas.width = 512; canvas.height = 256;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = 'rgba(20, 40, 20, 0.9)'; ctx.fillRect(10, 10, 492, 236);
         ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 236);
-        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY', 256, 100);
+        
+        // Stampiamo la versione in alto a destra nel riquadro del titolo
+        ctx.fillStyle = '#888888'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'right';
+        ctx.fillText(GAME_VERSION, 480, 35);
+
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY', 256, 105);
         ctx.fillStyle = '#00ff66'; ctx.font = 'bold 44px Arial'; ctx.fillText('LAWN!', 256, 170);
+        
         logoMat.map = new THREE.CanvasTexture(canvas);
         logoMesh.scale.set(1.6, 0.8, 1);
         logoMat.needsUpdate = true;
@@ -438,7 +444,9 @@
 
     function create3DHUD() {
       const hudGroup = new THREE.Group();
-      hudGroup.position.set(-1.1, 1.0, -4.5);
+      
+      // HUD ABBASSATO A 0.85 METRI
+      hudGroup.position.set(-0.8, 0.85, -2.5);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
       hudCanvas = document.createElement('canvas');
@@ -462,7 +470,6 @@
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      // PULSANTE SCELTA MANO
       btnHandToggleMesh = create3DButton("Mano: Destra", 0.28, 0.11, "#00ffff");
       btnHandToggleMesh.position.set(0.32, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
@@ -589,7 +596,6 @@
     }
 
     function updateGunVisibility() {
-      // Index 0 = Destra (di solito), Index 1 = Sinistra (o viceversa a seconda del mapping visore)
       if (controllers.length >= 2) {
         if (activeHand === 'destra') {
           controllers[0].visible = true;
@@ -620,7 +626,6 @@
 
     function onXRShoot(event) {
       const controller = event.target;
-      // Controlla se il controller attivo sta sparando
       const activeIdx = (activeHand === 'destra') ? 0 : 1;
       if (controllers[activeIdx] !== controller) return;
 
@@ -746,8 +751,7 @@
         survivalTime += delta;
 
         difficultyMultiplier = 1.0 + (survivalTime * 0.03);
-        // SPAWN INIZIALE OGNI 0.5 SECONDI (molto più fitto)
-        const currentSpawnInterval = Math.max(0.15, 0.5 - (survivalTime * 0.005));
+        const currentSpawnInterval = Math.max(0.3, 1.5 - (survivalTime * 0.01));
 
         spawnTimer += delta;
         if (spawnTimer >= currentSpawnInterval) {

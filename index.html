@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.23.4";
+    const GAME_VERSION = "v3.23.5";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -262,8 +262,15 @@
         const flowerMesh = new THREE.Mesh(flowerGeo, flowerMat);
         const x = (Math.random() - 0.5) * 2.4;
         const z = -3.0 + (Math.random() - 0.5) * 2.4;
-        // Posizionamento verticale (perpendicolare al pavimento) con la base appoggiata a y = 0
+        
+        // Perpendicolari al pavimento (verticali), appoggiate con la base a y = 0
         flowerMesh.position.set(x, size / 2, z);
+        
+        flowerMesh.userData = {
+          baseY: size / 2,
+          wobbleSpeed: 4 + Math.random() * 3
+        };
+
         scene.add(flowerMesh);
         flowers.push(flowerMesh);
       }
@@ -842,6 +849,11 @@
           cameraRig.position.y = 1.6;
         }
       }
+
+      // Animazione wobble dei fiori
+      flowers.forEach(f => {
+        f.position.y = f.userData.baseY + Math.sin(time * f.userData.wobbleSpeed) * 0.02;
+      });
 
       if (gameState === 'PLAYING') {
         survivalTime += delta;

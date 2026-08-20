@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.16.0";
+    const GAME_VERSION = "v3.18.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -94,12 +94,10 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    
-    // AGGIUNTO E11 ALL'ARRAY DEGLI ANIMALI DISPONIBILI
     const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31', 'e11'];
 
     const SIZE_MAP = {
-      1: { scale: 0.30, points: 200, speed: 1.4 },
+      1: { scale: 0.30, points: 200, speed: 0.85 },
       2: { scale: 0.55, points: 150, speed: 1.0 },
       3: { scale: 0.90, points: 100, speed: 0.7 },
       4: { scale: 1.35, points: 50,  speed: 0.4 }
@@ -110,7 +108,7 @@
     function getAnimalTexture(fileName) {
       if (!textureCache[fileName]) {
         const texture = textureLoader.load(`${fileName}.png`, undefined, undefined, () => {
-          console.warn(`Immagine ${fileName}.png non trovata.`);
+          console.warn(`Image ${fileName}.png not found.`);
         });
         texture.colorSpace = THREE.SRGBColorSpace;
         textureCache[fileName] = texture;
@@ -272,7 +270,7 @@
       if (logoMesh) logoMesh.visible = false;
 
       updateHudTexture();
-      update3DButtonText(btnStartMesh, "⏹ STOP GIOCO", "#ff2a6d");
+      update3DButtonText(btnStartMesh, "⏹ STOP GAME", "#ff2a6d");
     }
 
     function stopGame() {
@@ -282,13 +280,19 @@
       if (logoMesh) logoMesh.visible = true;
 
       updateHudTexture();
-      update3DButtonText(btnStartMesh, "▶ START GIOCO", "#00ffcc");
+      update3DButtonText(btnStartMesh, "▶ START GAME", "#00ffcc");
     }
 
     function triggerGameOver() {
       gameState = 'GAMEOVER';
       updateHudTexture();
-      setTimeout(() => { stopGame(); }, 3000);
+      setTimeout(() => { stopGame(); }, 3500);
+    }
+
+    function triggerHabitatGameOver() {
+      gameState = 'HABITAT_GAMEOVER';
+      updateHudTexture();
+      setTimeout(() => { stopGame(); }, 3500);
     }
 
     function cleanupGame() {
@@ -367,6 +371,7 @@
       activeAnimals.push(animalMesh);
     }
 
+    // ENGLISH RULES IN THE TITLE PANEL
     function createPresentationLogo() {
       const logoGeo = new THREE.PlaneGeometry(1, 1);
       const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
@@ -383,19 +388,31 @@
         logoMat.needsUpdate = true;
       }, undefined, () => {
         const canvas = document.createElement('canvas');
-        canvas.width = 512; canvas.height = 256;
+        canvas.width = 512; canvas.height = 360;
         const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'rgba(20, 40, 20, 0.9)'; ctx.fillRect(10, 10, 492, 236);
-        ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 236);
+        
+        ctx.fillStyle = 'rgba(20, 40, 20, 0.95)'; ctx.fillRect(10, 10, 492, 340);
+        ctx.strokeStyle = '#478c2e'; ctx.lineWidth = 6; ctx.strokeRect(10, 10, 492, 340);
         
         ctx.fillStyle = '#888888'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'right';
         ctx.fillText(GAME_VERSION, 480, 35);
 
-        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY', 256, 105);
-        ctx.fillStyle = '#00ff66'; ctx.font = 'bold 44px Arial'; ctx.fillText('LAWN!', 256, 170);
-        
+        ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 26px Arial'; ctx.textAlign = 'center'; 
+        ctx.fillText('GET OFF OF MY LAWN!', 256, 50);
+
+        // Game rules in English
+        ctx.fillStyle = '#00ff66'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'left';
+        ctx.fillText('GAME RULES:', 30, 85);
+
+        ctx.fillStyle = '#ffffff'; ctx.font = '14px Arial';
+        ctx.fillText('• Defend lawn: max 5 poops (Game Over).', 30, 115);
+        ctx.fillText('• Shoot animals ONLY at the fence (inside).', 30, 140);
+        ctx.fillText('• Hit outside = Demerit note (Wildlife habitat).', 30, 165);
+        ctx.fillText('• 4 Sizes: from 1 (hare, fast) to 4 (horse).', 30, 190);
+        ctx.fillText('• Use the active hand trigger (from HUD).', 30, 215);
+
         logoMat.map = new THREE.CanvasTexture(canvas);
-        logoMesh.scale.set(1.6, 0.8, 1);
+        logoMesh.scale.set(1.6, 1.12, 1);
         logoMat.needsUpdate = true;
       });
     }
@@ -481,22 +498,22 @@
       );
       hudGroup.add(panelMesh);
 
-      btnPitchDownMesh = create3DButton("Inclina Giu ⤵", 0.28, 0.11);
+      btnPitchDownMesh = create3DButton("Pitch Down ⤵", 0.28, 0.11);
       btnPitchDownMesh.position.set(-0.32, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
-      btnPitchUpMesh = create3DButton("Inclina Su ⤴", 0.28, 0.11);
+      btnPitchUpMesh = create3DButton("Pitch Up ⤴", 0.28, 0.11);
       btnPitchUpMesh.position.set(0, -0.45, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnHandToggleMesh = create3DButton("Mano sinistra", 0.28, 0.11, "#00ffff");
+      btnHandToggleMesh = create3DButton("Left Hand", 0.28, 0.11, "#00ffff");
       btnHandToggleMesh.position.set(0.32, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
       hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
 
-      btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
+      btnStartMesh = create3DButton("▶ START GAME", 0.43, 0.11, "#00ffcc");
       btnStartMesh.position.set(0, -0.59, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
@@ -517,28 +534,32 @@
       const secs = Math.floor(survivalTime % 60);
       const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
       hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 20px Arial';
-      hudCtx.fillText('Tempo Difesa: ' + timeStr, 28, 75);
+      hudCtx.fillText('Defense Time: ' + timeStr, 28, 75);
 
       if (gameState === 'GAMEOVER') {
         hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial';
-        hudCtx.fillText('Il tuo giardino è una latrina !', 28, 120);
+        hudCtx.fillText('Your garden is a latrine!', 28, 120);
+      } else if (gameState === 'HABITAT_GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 20px Arial';
+        hudCtx.fillText('Demerit: attacking wildlife', 28, 110);
+        hudCtx.fillText('in its own natural habitat!', 28, 138);
       } else {
         hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
         hudCtx.font = 'bold 20px Arial';
-        hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 120);
+        hudCtx.fillText('Status: ' + (gameState === 'PLAYING' ? 'DEFENDING' : 'LOBBY / PAUSE'), 28, 120);
       }
 
       hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
       hudCtx.font = 'bold 22px Arial';
-      hudCtx.fillText(`Cacca sul prato: ${poops.length} / ${MAX_POOPS}`, 28, 160);
+      hudCtx.fillText(`Poop on lawn: ${poops.length} / ${MAX_POOPS}`, 28, 165);
 
       hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
       hudCtx.font = 'bold 28px Arial';
-      hudCtx.fillText('Punti: ' + score, 28, 210);
+      hudCtx.fillText('Score: ' + score, 28, 215);
 
       const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
       hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial';
-      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 255);
+      hudCtx.fillText('Pitch: ' + degPitch + '°', 28, 260);
 
       hudTexture.needsUpdate = true;
     }
@@ -647,7 +668,7 @@
       activeHand = (activeHand === 'destra') ? 'sinistra' : 'destra';
       updateGunVisibility();
       
-      const nextLabel = (activeHand === 'destra') ? "Mano sinistra" : "Mano destra";
+      const nextLabel = (activeHand === 'destra') ? "Left Hand" : "Right Hand";
       update3DButtonText(btnHandToggleMesh, nextLabel, "#00ffff");
     }
 
@@ -705,6 +726,12 @@
         } else if (gameState === 'PLAYING') {
           const animal = activeAnimals.find(a => a === hit.object);
           if (animal && animal.userData.active) {
+            
+            if (animal.userData.state === 'WALKING_IN' && Math.abs(animal.position.x) > 1.5) {
+              triggerHabitatGameOver();
+              return;
+            }
+
             score += animal.userData.points;
             updateHudTexture();
             playYeetSound();

@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.23.7";
+    const GAME_VERSION = "v3.23.8";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -75,7 +75,6 @@
 
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
-    let activeHand = 'destra';
 
     let controllerRight = null;
     let controllerLeft = null;
@@ -83,7 +82,7 @@
     let audioCtx = null;
 
     let hudCanvas, hudCtx, hudTexture;
-    let btnPitchDownMesh, btnPitchUpMesh, btnHandToggleMesh, btnStartMesh, btnLaserMesh;
+    let btnPitchDownMesh, btnPitchUpMesh, btnStartMesh, btnLaserMesh;
 
     let logoMesh = null;
 
@@ -466,7 +465,7 @@
         ctx.fillText('• Shoot animals ONLY at the fence (inside).', 30, 140);
         ctx.fillText('• Hit outside = Demerit note (Wildlife habitat).', 30, 165);
         ctx.fillText('• 4 Sizes: from 1 (hare, fast) to 4 (horse).', 30, 190);
-        ctx.fillText('• Use grip button to grab and move HUD.', 30, 215);
+        ctx.fillText('• Dual guns active. Use grip to move HUD.', 30, 215);
 
         logoMat.map = new THREE.CanvasTexture(canvas);
         logoMesh.scale.set(1.6, 1.12, 1);
@@ -556,27 +555,22 @@
       hudGroup.add(panelMesh);
 
       btnPitchDownMesh = create3DButton("Pitch Down ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.35, -0.45, 0);
+      btnPitchDownMesh.position.set(-0.25, -0.48, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
       btnPitchUpMesh = create3DButton("Pitch Up ⤴", 0.28, 0.11);
-      btnPitchUpMesh.position.set(0, -0.45, 0);
+      btnPitchUpMesh.position.set(0.25, -0.48, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnHandToggleMesh = create3DButton("Left Hand", 0.28, 0.11, "#00ffff");
-      btnHandToggleMesh.position.set(0.35, -0.45, 0);
-      btnHandToggleMesh.userData = { action: 'toggle_hand' };
-      hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
-
       btnLaserMesh = create3DButton(laserEnabled ? "Laser: ON" : "Laser: OFF", 0.28, 0.11, "#ff0000");
-      btnLaserMesh.position.set(-0.2, -0.60, 0);
+      btnLaserMesh.position.set(-0.25, -0.61, 0);
       btnLaserMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserMesh); hudButtons.push(btnLaserMesh);
 
       btnStartMesh = create3DButton("▶ START GAME", 0.28, 0.11, "#00ffcc");
-      btnStartMesh.position.set(0.2, -0.60, 0);
+      btnStartMesh.position.set(0.25, -0.61, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
@@ -714,7 +708,6 @@
           if (controller === controllerLeft) controllerLeft = null;
         });
 
-        // Gestione grab HUD tramite tasto squeeze (grip) sul controller
         controller.addEventListener('squeezestart', () => {
           if (!hudGroup) return;
           const controllerPos = new THREE.Vector3();
@@ -744,25 +737,12 @@
     }
 
     function updateGunVisibility() {
-      if (controllerRight) {
-        controllerRight.visible = (activeHand === 'destra');
-      }
-      if (controllerLeft) {
-        controllerLeft.visible = (activeHand === 'sinistra');
-      }
-      
+      if (controllerRight) controllerRight.visible = true;
+      if (controllerLeft) controllerLeft.visible = true;
       if (!controllerRight && !controllerLeft && controllers.length >= 2) {
-        controllers[0].visible = (activeHand === 'destra');
-        controllers[1].visible = (activeHand === 'sinistra');
+        controllers[0].visible = true;
+        controllers[1].visible = true;
       }
-    }
-
-    function toggleHand() {
-      activeHand = (activeHand === 'destra') ? 'sinistra' : 'destra';
-      updateGunVisibility();
-      
-      const nextLabel = (activeHand === 'destra') ? "Left Hand" : "Right Hand";
-      update3DButtonText(btnHandToggleMesh, nextLabel, "#00ffff");
     }
 
     function updateGunRotation() {
@@ -772,10 +752,6 @@
 
     function onXRShoot(event) {
       const controller = event.target;
-      
-      if (activeHand === 'destra' && controller !== controllerRight && controller !== controllers[0]) return;
-      if (activeHand === 'sinistra' && controller !== controllerLeft && controller !== controllers[1]) return;
-
       const pivot = controller.children.find(c => gunPivots.includes(c));
       if (!pivot) return;
 
@@ -814,7 +790,6 @@
           const action = hitBtn.userData.action;
           if (action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
-          else if (action === 'toggle_hand') { toggleHand(); }
           else if (action === 'toggle_laser') { toggleLaser(); }
           else if (action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
@@ -897,7 +872,6 @@
         }
       }
 
-      // Wobble esclusivamente orizzontale (rotazione Z con base bloccata a y = 0)
       flowers.forEach(f => {
         f.rotation.z = Math.sin(time * f.userData.wobbleSpeed) * f.userData.maxTilt;
       });

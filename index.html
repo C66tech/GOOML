@@ -54,10 +54,10 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.3.0";
+    const GAME_VERSION = "v3.4.0";
 
     let scene, camera, renderer, controls;
-    let cameraRig; // <-- NOVITÀ: Contenitore per il giocatore (permette l'offset dell'altezza)
+    let cameraRig; 
     
     let controllers = [];
     let gunPivots = [];
@@ -76,7 +76,7 @@
     let audioCtx = null;
 
     let hudCanvas, hudCtx, hudTexture;
-    let btnPitchDownMesh, btnPitchUpMesh, btnLaserToggleMesh, btnHeightFixMesh, btnStartMesh;
+    let btnPitchDownMesh, btnPitchUpMesh, btnLaserToggleMesh, btnStartMesh;
 
     let logoMesh = null;
 
@@ -85,7 +85,6 @@
     let poops = [];
     let spawnTimer = 0;
     let survivalTime = 0;
-    let baseSpawnInterval = 3.0;
     let difficultyMultiplier = 1.0;
 
     const MAX_POOPS = 5;
@@ -120,9 +119,6 @@
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a2634);
 
-      // --- CAMERA RIG SETUP ---
-      // Invece di mettere la telecamera nella scena, la mettiamo nel Rig.
-      // Questo ci permette di traslare l'intero giocatore se WebXR fallisce la quota pavimento.
       cameraRig = new THREE.Group();
       scene.add(cameraRig);
 
@@ -147,18 +143,13 @@
       document.body.appendChild(renderer.domElement);
 
       controls = new OrbitControls(camera, renderer.domElement);
-      cameraRig.position.set(0, 1.6, 0); // Offset iniziale per il desktop
+      cameraRig.position.set(0, 1.6, 0); 
       controls.target.set(0, 0, -2.5);
       controls.update();
 
       renderer.xr.addEventListener('sessionstart', () => {
         const session = renderer.xr.getSession();
-        
         controls.enabled = false;
-        
-        // In XR la camera viene spostata dal visore, quindi azzeriamo il Rig.
-        // Se il local-floor funziona, la testa sarà a 1.6m reali.
-        // Se non funziona e vedi il pavimento in faccia, userai il bottone "Fix Altezza".
         cameraRig.position.set(0, 0, 0);
 
         if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
@@ -197,12 +188,10 @@
     }
 
     function createLawnAndFence() {
-      // --- PAVIMENTO IN WIREFRAME ---
-      // Geometria suddivisa (25x25) per creare un bell'effetto griglia
       const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0, 25, 25);
       const lawnMat = new THREE.MeshBasicMaterial({ 
-        color: 0x00ff66, // Verde fluo
-        wireframe: true, // WIREFRAME ATTIVATO!
+        color: 0x00ff66,
+        wireframe: true,
         transparent: true,
         opacity: 0.6
       });
@@ -272,7 +261,6 @@
       score = 0;
       spawnTimer = 0;
       survivalTime = 0;
-      baseSpawnInterval = 3.0;
       difficultyMultiplier = 1.0;
       
       updateHudTexture();
@@ -340,11 +328,15 @@
       const fromLeft = Math.random() > 0.5;
       const startX = fromLeft ? -3.2 : 3.2;
       const targetX = fromLeft ? 3.2 : -3.2;
-      const centerZ = -2.5;
-
-      animalMesh.position.set(startX, sizeData.scale / 2, centerZ);
       
-      // LookAt usa la posizione assoluta del visore (estratta dal Rig)
+      // BINARI PARALLELI: Un percorso casuale in profondità Z per ogni animale (tra -1.0 e -4.0)
+      const trackZ = -2.5 + (Math.random() - 0.5) * 3.0;
+
+      // OBIETTIVO CACCA: Punto specifico all'interno del 20% centrale
+      const poopTargetX = (Math.random() - 0.5) * 1.0;
+
+      animalMesh.position.set(startX, sizeData.scale / 2, trackZ);
+      
       const camWorldPos = new THREE.Vector3();
       camera.getWorldPosition(camWorldPos);
       animalMesh.lookAt(camWorldPos.x, animalMesh.position.y, camWorldPos.z);
@@ -355,7 +347,9 @@
         speed: sizeData.speed * difficultyMultiplier,
         dirX: fromLeft ? 1 : -1,
         targetX: targetX,
-        hasPooped: false,
+        poopTargetX: poopTargetX,
+        state: 'WALKING_IN', // Stati possibili: WALKING_IN, POOPING, WALKING_OUT
+        poopTimer: 0,
         texFrame2: texFrame2
       };
 
@@ -454,34 +448,27 @@
       );
       hudGroup.add(panelMesh);
 
-      // 4 BOTTONI IN FILA
-      btnPitchDownMesh = create3DButton("Giu ⤵", 0.26, 0.11);
-      btnPitchDownMesh.position.set(-0.42, -0.45, 0);
+      // Tre bottoni centrati e rimossi pulsante "Altezza"
+      btnPitchDownMesh = create3DButton("Inclina Giu ⤵", 0.28, 0.11);
+      btnPitchDownMesh.position.set(-0.32, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
-      btnPitchUpMesh = create3DButton("Su ⤴", 0.26, 0.11);
-      btnPitchUpMesh.position.set(-0.14, -0.45, 0);
+      btnPitchUpMesh = create3DButton("Inclina Su ⤴", 0.28, 0.11);
+      btnPitchUpMesh.position.set(0, -0.45, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnLaserToggleMesh = create3DButton("Laser", 0.26, 0.11);
-      btnLaserToggleMesh.position.set(0.14, -0.45, 0);
+      btnLaserToggleMesh = create3DButton("Laser: ON", 0.28, 0.11);
+      btnLaserToggleMesh.position.set(0.32, -0.45, 0);
       btnLaserToggleMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserToggleMesh); hudButtons.push(btnLaserToggleMesh);
-
-      // NUOVO BOTTONE: FIX ALTEZZA (Compensa il bug di WebXR sollevandoti di 1.6m)
-      btnHeightFixMesh = create3DButton("Altezza ⬆", 0.26, 0.11, "#ffcc00");
-      btnHeightFixMesh.position.set(0.42, -0.45, 0);
-      btnHeightFixMesh.userData = { action: 'fix_height' };
-      hudGroup.add(btnHeightFixMesh); hudButtons.push(btnHeightFixMesh);
 
       btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
       btnStartMesh.position.set(0, -0.59, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
-      // L'HUD è attaccato al Camera Rig, così se modifichi l'altezza, lui ti segue.
       cameraRig.add(hudGroup); 
     }
 
@@ -491,7 +478,6 @@
 
       hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
 
-      // INDICATORE VERSIONE IN ALTO A DESTRA
       hudCtx.fillStyle = '#888888'; hudCtx.font = 'bold 16px Arial';
       hudCtx.fillText(GAME_VERSION, 510, 40);
 
@@ -591,7 +577,6 @@
         controller.add(pivot);
         controller.addEventListener('selectstart', onXRShoot);
         
-        // Aggiungiamo i controller al RIG, per farli traslare con il giocatore
         cameraRig.add(controller);
         
         controllers.push(controller);
@@ -607,6 +592,7 @@
     function toggleLaser() {
       laserEnabled = !laserEnabled;
       laserLines.forEach(line => line.visible = laserEnabled);
+      update3DButtonText(btnLaserToggleMesh, laserEnabled ? "Laser: ON" : "Laser: OFF");
     }
 
     function onXRShoot(event) {
@@ -650,11 +636,6 @@
           if (action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
           else if (action === 'toggle_laser') { toggleLaser(); }
-          // LOGICA FIX ALTEZZA: Aggiunge o toglie 1.6m alla Y del rig intero
-          else if (action === 'fix_height') { 
-            cameraRig.position.y = (cameraRig.position.y === 0) ? 1.6 : 0; 
-            playPopSound(); 
-          }
           else if (action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
           const animal = activeAnimals.find(a => a === hit.object);
@@ -694,21 +675,6 @@
       createTracer(origin, endPoint);
     }
 
-    function playPopSound() {
-      initAudio();
-      if (!audioCtx) return;
-      const now = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(350, now);
-      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
-      gain.gain.setValueAtTime(0.8, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(now); osc.stop(now + 0.12);
-    }
-
     function createTracer(start, end) {
       const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
       const mat = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 1.0 });
@@ -742,11 +708,20 @@
     function animate() {
       const delta = clock.getDelta();
 
+      // AUTO-COMPENSAZIONE ALTEZZA (Senza bottoni)
+      // Se il tracciamento XR posiziona la telecamera a terra (<0.5m), rialziamo l'intero giocatore di 1.6m.
+      if (renderer.xr.isPresenting) {
+        if (camera.position.y < 0.5 && cameraRig.position.y === 0) {
+          cameraRig.position.y = 1.6;
+        }
+      }
+
       if (gameState === 'PLAYING') {
         survivalTime += delta;
 
         difficultyMultiplier = 1.0 + (survivalTime * 0.03);
-        const currentSpawnInterval = Math.max(0.8, baseSpawnInterval - (survivalTime * 0.02));
+        // Si parte da uno spawn ogni 2.0 secondi, si abbassa fino a uno ogni 0.3 secondi
+        const currentSpawnInterval = Math.max(0.3, 2.0 - (survivalTime * 0.015));
 
         spawnTimer += delta;
         if (spawnTimer >= currentSpawnInterval) {
@@ -759,23 +734,41 @@
 
         for (let i = activeAnimals.length - 1; i >= 0; i--) {
           const a = activeAnimals[i];
-          a.position.x += a.userData.dirX * a.userData.speed * delta;
-          a.lookAt(camWorldPos.x, a.position.y, camWorldPos.z);
 
-          if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.5) {
-            a.userData.hasPooped = true;
-            const randomX = (Math.random() - 0.5) * 1.0; 
-            const randomZ = -2.5 + (Math.random() - 0.5) * 1.0; 
-
-            createPoopModel(randomX, randomZ);
-            updateHudTexture();
-
-            if (poops.length >= MAX_POOPS) {
-              triggerGameOver();
-              break;
+          // STATE MACHINE DELL'ANIMALE
+          if (a.userData.state === 'WALKING_IN') {
+            a.position.x += a.userData.dirX * a.userData.speed * delta;
+            
+            // Controlla se ha raggiunto il punto in cui deve fermarsi a fare la cacca
+            const reachedTarget = (a.userData.dirX > 0 && a.position.x >= a.userData.poopTargetX) ||
+                                  (a.userData.dirX < 0 && a.position.x <= a.userData.poopTargetX);
+            
+            if (reachedTarget) {
+              a.position.x = a.userData.poopTargetX; // Allineamento preciso
+              a.userData.state = 'POOPING';
+              a.userData.poopTimer = 0.5; // Si ferma per 0.5 secondi
             }
+          } 
+          else if (a.userData.state === 'POOPING') {
+            a.userData.poopTimer -= delta;
+            if (a.userData.poopTimer <= 0) {
+              // Ha finito di fare la cacca, la deposita e riparte
+              createPoopModel(a.position.x, a.position.z);
+              a.userData.state = 'WALKING_OUT';
+              updateHudTexture();
+
+              if (poops.length >= MAX_POOPS) {
+                triggerGameOver();
+              }
+            }
+          } 
+          else if (a.userData.state === 'WALKING_OUT') {
+            a.position.x += a.userData.dirX * a.userData.speed * delta;
           }
 
+          a.lookAt(camWorldPos.x, a.position.y, camWorldPos.z);
+
+          // Rimuove quando esce totalmente dal prato
           if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
               (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
             scene.remove(a);

@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.23.1";
+    const GAME_VERSION = "v3.23.2";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -95,7 +95,7 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31', 'e11', 'f11', 'g31'];[cite: 1]
+    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31', 'e11', 'f11', 'g31'];
 
     const SIZE_MAP = {
       1: { scale: 0.30, points: 200, speed: 0.85 },
@@ -137,7 +137,7 @@
       scene.add(dirLight);
 
       createLawnAndFence();
-      createFlowers(); // Genera i 10 fiori sul prato
+      createFlowers();
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
@@ -242,14 +242,12 @@
       scene.add(fenceGroup);
     }
 
-    // Funzione per creare i 10 fiori uniformemente sparsi sul prato
     function createFlowers() {
       const flowerTex = textureLoader.load('fiori.png', undefined, undefined, () => {
         console.warn('Image fiori.png not found.');
       });
       flowerTex.colorSpace = THREE.SRGBColorSpace;
 
-      // Dimensione dell'animale più piccolo (Taglia 1: 0.30)
       const flowerGeo = new THREE.PlaneGeometry(0.30, 0.30);
       const flowerMat = new THREE.MeshBasicMaterial({
         map: flowerTex,
@@ -258,17 +256,11 @@
         side: THREE.DoubleSide
       });
 
-      // Posizionamento uniforme/grigliato o semi-casuale sul prato (3x3 centrato in 0, 0, -3.0)
       for (let i = 0; i < 10; i++) {
         const flowerMesh = new THREE.Mesh(flowerGeo, flowerMat);
-        
-        // Distribuzione uniforme nell'area del prato
         const x = (Math.random() - 0.5) * 2.4;
         const z = -3.0 + (Math.random() - 0.5) * 2.4;
-        
-        // Posizionamento perpendicolare al prato (altezza pari a metà della dimensione per appoggiarlo)
         flowerMesh.position.set(x, 0.15, z);
-        
         scene.add(flowerMesh);
         flowers.push(flowerMesh);
       }
@@ -352,7 +344,7 @@
     }
 
     function spawnAnimalFromOutside() {
-      if (AVAILABLE_IMAGES.length === 0) return[cite: 1];
+      if (AVAILABLE_IMAGES.length === 0) return;
 
       const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
       const animalType = baseName.charAt(0);

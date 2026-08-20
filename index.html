@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.11.0";
+    const GAME_VERSION = "v3.12.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -91,15 +91,14 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    
-    // AGGIUNTO C41 ALL'ARRAY DEGLI ANIMALI DISPONIBILI
     const AVAILABLE_IMAGES = ['a21', 'b21', 'c41'];
 
+    // TAGLIE: Dimensione 4 ridotta, punti e velocità ricalcolati
     const SIZE_MAP = {
-      1: { scale: 0.35, points: 200, speed: 1.4 },
-      2: { scale: 0.60, points: 150, speed: 1.0 },
-      3: { scale: 1.10, points: 100, speed: 0.7 },
-      4: { scale: 2.20, points: 50,  speed: 0.4 }
+      1: { scale: 0.35, points: 200, speed: 1.4, weight: 8 },
+      2: { scale: 0.55, points: 150, speed: 1.0, weight: 4 },
+      3: { scale: 0.85, points: 100, speed: 0.7, weight: 2 },
+      4: { scale: 1.30, points: 50,  speed: 0.4, weight: 1 }
     };
 
     const clock = new THREE.Clock();
@@ -239,7 +238,8 @@
       scene.add(fenceGroup);
     }
 
-    function createPoopModel(x, z) {
+    // CACCA PROPORZIONALE ALLA TAGLIA DELL'ANIMALE
+    function createPoopModel(x, z, scaleFactor = 1.0) {
       const poopGroup = new THREE.Group();
       const mat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.9 });
       
@@ -251,6 +251,7 @@
       b3.position.y = 0.08;
 
       poopGroup.add(b1, b2, b3);
+      poopGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
       poopGroup.position.set(x, 0, z);
       
       scene.add(poopGroup);
@@ -309,15 +310,28 @@
       poops = [];
     }
 
+    // SELEZIONE TAGLIA CON PROBABILITÀ INVERSAMENTE PROPORZIONALE
+    function getRandomSizeDigit() {
+      const keys = Object.keys(SIZE_MAP);
+      let totalWeight = keys.reduce((sum, k) => sum + SIZE_MAP[k].weight, 0);
+      let randomVal = Math.random() * totalWeight;
+      
+      for (let k of keys) {
+        if (randomVal < SIZE_MAP[k].weight) return parseInt(k, 10);
+        randomVal -= SIZE_MAP[k].weight;
+      }
+      return 1;
+    }
+
     function spawnAnimalFromOutside() {
       if (AVAILABLE_IMAGES.length === 0) return;
 
       const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
       const animalType = baseName.charAt(0);
-      const sizeDigit = parseInt(baseName.charAt(1), 10) || 2;
+      const sizeDigit = getRandomSizeDigit();
       const frame2Name = `${animalType}${sizeDigit}2`;
 
-      const sizeData = SIZE_MAP[sizeDigit] || SIZE_MAP[2];
+      const sizeData = SIZE_MAP[sizeDigit];
 
       const texFrame1 = getAnimalTexture(baseName);
       const texFrame2 = getAnimalTexture(frame2Name);
@@ -355,6 +369,7 @@
         poopTimer: 0,
         baseY: sizeData.scale / 2,
         wobbleSpeed: 12 + Math.random() * 6,
+        sizeScaleFactor: sizeData.scale / 0.60, // Rapporto rispetto alla taglia base 2
         texFrame2: texFrame2
       };
 
@@ -424,6 +439,25 @@
       noise.start(now);
     }
 
+    // EFFETTO AUDIO CACCA (SQUIRT/PLOP)
+    function playPoopSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+
+      gain.gain.setValueAtTime(0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.15);
+    }
+
     function playYeetSound() {
       initAudio();
       if (!audioCtx) return;
@@ -468,7 +502,8 @@
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnHandToggleMesh = create3DButton("Mano: Destra", 0.28, 0.11, "#00ffff");
+      // PARTIAMO CON MANO DESTRA ATTIVA, PULSANTE MOSTRA "Mano sinistra"
+      btnHandToggleMesh = create3DButton("Mano sinistra", 0.28, 0.11, "#00ffff");
       btnHandToggleMesh.position.set(0.32, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
       hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
@@ -608,7 +643,8 @@
     function toggleHand() {
       activeHand = (activeHand === 'destra') ? 'sinistra' : 'destra';
       updateGunVisibility();
-      update3DButtonText(btnHandToggleMesh, `Mano: ${activeHand.charAt(0).toUpperCase() + activeHand.slice(1)}`, "#00ffff");
+      const nextLabel = (activeHand === 'destra') ? "Mano sinistra" : "Mano destra";
+      update3DButtonText(btnHandToggleMesh, nextLabel, "#00ffff");
     }
 
     function updateGunRotation() {
@@ -688,14 +724,11 @@
               pushDir.z * 6.5
             );
 
+            // ROTAZIONE IN VOLO SOLO SULL'ASSE Z
             flyingRagdolls.push({
               mesh: animal,
               velocity: impulse,
-              rotVelocity: new THREE.Vector3(
-                (Math.random() - 0.5) * 22,
-                (Math.random() - 0.5) * 22,
-                (Math.random() - 0.5) * 22
-              ),
+              rotVelocityZ: (Math.random() - 0.5) * 25,
               life: 3.0
             });
           }
@@ -777,7 +810,10 @@
           else if (a.userData.state === 'POOPING') {
             a.userData.poopTimer -= delta;
             if (a.userData.poopTimer <= 0) {
-              createPoopModel(a.position.x, a.position.z);
+              // Rilascia cacca proporzionale e suona il rumore dedicato
+              createPoopModel(a.position.x, a.position.z, a.userData.sizeScaleFactor);
+              playPoopSound();
+              
               a.userData.state = 'WALKING_OUT';
               updateHudTexture();
 
@@ -807,9 +843,8 @@
           ragdoll.velocity.y -= 9.8 * delta;
           ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
           
-          ragdoll.mesh.rotation.x += ragdoll.rotVelocity.x * delta;
-          ragdoll.mesh.rotation.y += ragdoll.rotVelocity.y * delta;
-          ragdoll.mesh.rotation.z += ragdoll.rotVelocity.z * delta;
+          // Rotazione in volo SOLO attorno all'asse Z
+          ragdoll.mesh.rotation.z += ragdoll.rotVelocityZ * delta;
 
           if (ragdoll.mesh.position.y <= -0.5 || ragdoll.life <= 0) {
             scene.remove(ragdoll.mesh);

@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.13.0";
+    const GAME_VERSION = "v3.14.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -91,15 +91,14 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    
-    // AGGIUNTO D31 ALL'ARRAY DEGLI ANIMALI DISPONIBILI
     const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31'];
 
+    // 4 TAGLIE DISTINTE: da 1 (piccolo come una lepre) a 4 (grande come un cavallo)
     const SIZE_MAP = {
-      1: { scale: 0.35, points: 200, speed: 1.4, weight: 8 },
-      2: { scale: 0.55, points: 150, speed: 1.0, weight: 4 },
-      3: { scale: 0.85, points: 100, speed: 0.7, weight: 2 },
-      4: { scale: 1.30, points: 50,  speed: 0.4, weight: 1 }
+      1: { scale: 0.30, points: 200, speed: 1.4 }, // Piccolo come una lepre
+      2: { scale: 0.55, points: 150, speed: 1.0 }, // Medio-piccolo
+      3: { scale: 0.90, points: 100, speed: 0.7 }, // Medio-grande
+      4: { scale: 1.35, points: 50,  speed: 0.4 }  // Grande come un cavallo
     };
 
     const clock = new THREE.Clock();
@@ -310,27 +309,16 @@
       poops = [];
     }
 
-    function getRandomSizeDigit() {
-      const keys = Object.keys(SIZE_MAP);
-      let totalWeight = keys.reduce((sum, k) => sum + SIZE_MAP[k].weight, 0);
-      let randomVal = Math.random() * totalWeight;
-      
-      for (let k of keys) {
-        if (randomVal < SIZE_MAP[k].weight) return parseInt(k, 10);
-        randomVal -= SIZE_MAP[k].weight;
-      }
-      return 1;
-    }
-
     function spawnAnimalFromOutside() {
       if (AVAILABLE_IMAGES.length === 0) return;
 
+      // Seleziona un elemento casuale dall'array e deriva la taglia dal numero alla seconda posizione (indice 1)
       const baseName = AVAILABLE_IMAGES[Math.floor(Math.random() * AVAILABLE_IMAGES.length)];
       const animalType = baseName.charAt(0);
-      const sizeDigit = getRandomSizeDigit();
+      const sizeDigit = parseInt(baseName.charAt(1), 10) || 2;
       const frame2Name = `${animalType}${sizeDigit}2`;
 
-      const sizeData = SIZE_MAP[sizeDigit];
+      const sizeData = SIZE_MAP[sizeDigit] || SIZE_MAP[2];
 
       const texFrame1 = getAnimalTexture(baseName);
       const texFrame2 = getAnimalTexture(frame2Name);
@@ -368,7 +356,7 @@
         poopTimer: 0,
         baseY: sizeData.scale / 2,
         wobbleSpeed: 12 + Math.random() * 6,
-        sizeScaleFactor: sizeData.scale / 0.60,
+        sizeScaleFactor: sizeData.scale / 0.55,
         texFrame2: texFrame2
       };
 
@@ -625,6 +613,7 @@
       }
     }
 
+    // NASCONDE COMPLETAMENTE LA PISTOLA E IL CONTROLLER NON UTILIZZATO
     function updateGunVisibility() {
       if (controllers.length >= 2) {
         if (activeHand === 'destra') {
@@ -658,6 +647,8 @@
     function onXRShoot(event) {
       const controller = event.target;
       const activeIdx = (activeHand === 'destra') ? 0 : 1;
+      
+      // GESTIONE DEL GRILLETTO ESCLUSIVA PER LA MANO SELEZIONATA
       if (controllers[activeIdx] !== controller) return;
 
       const pivot = controller.children.find(c => gunPivots.includes(c));

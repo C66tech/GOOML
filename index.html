@@ -17,7 +17,6 @@
       font-family: Arial, sans-serif;
     }
 
-    /* FIX LAYOUT PULSANTI AR E VR AFFIANCATI IN BASSO */
     #VRButton, #ARButton {
       position: absolute !important;
       bottom: 20px !important;
@@ -54,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.4.0";
+    const GAME_VERSION = "v3.6.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -188,12 +187,12 @@
     }
 
     function createLawnAndFence() {
-      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0, 25, 25);
-      const lawnMat = new THREE.MeshBasicMaterial({ 
-        color: 0x00ff66,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.6
+      // BASE VERDE PIENA E SOLIDA
+      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
+      const lawnMat = new THREE.MeshStandardMaterial({ 
+        color: 0x38761d, // Verde prato solido
+        roughness: 0.9,
+        metalness: 0.1
       });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
       lawnMesh.rotation.x = -Math.PI / 2;
@@ -263,6 +262,8 @@
       survivalTime = 0;
       difficultyMultiplier = 1.0;
       
+      if (logoMesh) logoMesh.visible = false;
+
       updateHudTexture();
       update3DButtonText(btnStartMesh, "⏹ STOP GIOCO", "#ff2a6d");
     }
@@ -270,6 +271,9 @@
     function stopGame() {
       cleanupGame();
       gameState = 'LOBBY';
+      
+      if (logoMesh) logoMesh.visible = true;
+
       updateHudTexture();
       update3DButtonText(btnStartMesh, "▶ START GIOCO", "#00ffcc");
     }
@@ -328,18 +332,14 @@
       const fromLeft = Math.random() > 0.5;
       const startX = fromLeft ? -3.2 : 3.2;
       const targetX = fromLeft ? 3.2 : -3.2;
-      
-      // BINARI PARALLELI: Un percorso casuale in profondità Z per ogni animale (tra -1.0 e -4.0)
       const trackZ = -2.5 + (Math.random() - 0.5) * 3.0;
-
-      // OBIETTIVO CACCA: Punto specifico all'interno del 20% centrale
       const poopTargetX = (Math.random() - 0.5) * 1.0;
 
+      if (fromLeft) {
+        animalMesh.scale.x = -1; 
+      }
+
       animalMesh.position.set(startX, sizeData.scale / 2, trackZ);
-      
-      const camWorldPos = new THREE.Vector3();
-      camera.getWorldPosition(camWorldPos);
-      animalMesh.lookAt(camWorldPos.x, animalMesh.position.y, camWorldPos.z);
 
       animalMesh.userData = {
         active: true,
@@ -348,8 +348,10 @@
         dirX: fromLeft ? 1 : -1,
         targetX: targetX,
         poopTargetX: poopTargetX,
-        state: 'WALKING_IN', // Stati possibili: WALKING_IN, POOPING, WALKING_OUT
+        state: 'WALKING_IN',
         poopTimer: 0,
+        baseY: sizeData.scale / 2,
+        wobbleSpeed: 12 + Math.random() * 6,
         texFrame2: texFrame2
       };
 
@@ -362,14 +364,14 @@
       const logoMat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.05, side: THREE.DoubleSide });
 
       logoMesh = new THREE.Mesh(logoGeo, logoMat);
-      logoMesh.position.set(0, 2.15, -2.5);
+      logoMesh.position.set(0, 1.0, -2.2);
       scene.add(logoMesh);
 
       textureLoader.load('logo.png', (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace;
         logoMat.map = texture;
         const aspectRatio = texture.image.width / texture.image.height;
-        logoMesh.scale.set(0.9 * aspectRatio, 0.9, 1);
+        logoMesh.scale.set(0.8 * aspectRatio, 0.8, 1);
         logoMat.needsUpdate = true;
       }, undefined, () => {
         const canvas = document.createElement('canvas');
@@ -380,7 +382,7 @@
         ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.fillText('GET OFF OF MY', 256, 100);
         ctx.fillStyle = '#00ff66'; ctx.font = 'bold 44px Arial'; ctx.fillText('LAWN!', 256, 170);
         logoMat.map = new THREE.CanvasTexture(canvas);
-        logoMesh.scale.set(1.8, 0.9, 1);
+        logoMesh.scale.set(1.6, 0.8, 1);
         logoMat.needsUpdate = true;
       });
     }
@@ -434,7 +436,7 @@
 
     function create3DHUD() {
       const hudGroup = new THREE.Group();
-      hudGroup.position.set(-1.1, 1.45, -1.6);
+      hudGroup.position.set(-1.1, 1.0, -1.6);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
       hudCanvas = document.createElement('canvas');
@@ -448,7 +450,6 @@
       );
       hudGroup.add(panelMesh);
 
-      // Tre bottoni centrati e rimossi pulsante "Altezza"
       btnPitchDownMesh = create3DButton("Inclina Giu ⤵", 0.28, 0.11);
       btnPitchDownMesh.position.set(-0.32, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
@@ -654,7 +655,7 @@
             const pushDir = direction.clone().normalize();
             const impulse = new THREE.Vector3(
               pushDir.x * 6.5,
-              4.5 + Math.random() * 2.0,
+              5.0 + Math.random() * 2.0,
               pushDir.z * 6.5
             );
 
@@ -662,9 +663,9 @@
               mesh: animal,
               velocity: impulse,
               rotVelocity: new THREE.Vector3(
-                (Math.random() - 0.5) * 10,
-                (Math.random() - 0.5) * 10,
-                (Math.random() - 0.5) * 10
+                (Math.random() - 0.5) * 22,
+                (Math.random() - 0.5) * 22,
+                (Math.random() - 0.5) * 22
               ),
               life: 3.0
             });
@@ -707,9 +708,8 @@
 
     function animate() {
       const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
 
-      // AUTO-COMPENSAZIONE ALTEZZA (Senza bottoni)
-      // Se il tracciamento XR posiziona la telecamera a terra (<0.5m), rialziamo l'intero giocatore di 1.6m.
       if (renderer.xr.isPresenting) {
         if (camera.position.y < 0.5 && cameraRig.position.y === 0) {
           cameraRig.position.y = 1.6;
@@ -720,7 +720,6 @@
         survivalTime += delta;
 
         difficultyMultiplier = 1.0 + (survivalTime * 0.03);
-        // Si parte da uno spawn ogni 2.0 secondi, si abbassa fino a uno ogni 0.3 secondi
         const currentSpawnInterval = Math.max(0.3, 2.0 - (survivalTime * 0.015));
 
         spawnTimer += delta;
@@ -729,30 +728,26 @@
           spawnAnimalFromOutside();
         }
 
-        const camWorldPos = new THREE.Vector3();
-        camera.getWorldPosition(camWorldPos);
-
         for (let i = activeAnimals.length - 1; i >= 0; i--) {
           const a = activeAnimals[i];
 
-          // STATE MACHINE DELL'ANIMALE
           if (a.userData.state === 'WALKING_IN') {
             a.position.x += a.userData.dirX * a.userData.speed * delta;
-            
-            // Controlla se ha raggiunto il punto in cui deve fermarsi a fare la cacca
+            a.position.y = a.userData.baseY + Math.sin(time * a.userData.wobbleSpeed) * 0.04;
+
             const reachedTarget = (a.userData.dirX > 0 && a.position.x >= a.userData.poopTargetX) ||
                                   (a.userData.dirX < 0 && a.position.x <= a.userData.poopTargetX);
             
             if (reachedTarget) {
-              a.position.x = a.userData.poopTargetX; // Allineamento preciso
+              a.position.x = a.userData.poopTargetX;
+              a.position.y = a.userData.baseY;
               a.userData.state = 'POOPING';
-              a.userData.poopTimer = 0.5; // Si ferma per 0.5 secondi
+              a.userData.poopTimer = 0.5;
             }
           } 
           else if (a.userData.state === 'POOPING') {
             a.userData.poopTimer -= delta;
             if (a.userData.poopTimer <= 0) {
-              // Ha finito di fare la cacca, la deposita e riparte
               createPoopModel(a.position.x, a.position.z);
               a.userData.state = 'WALKING_OUT';
               updateHudTexture();
@@ -764,11 +759,9 @@
           } 
           else if (a.userData.state === 'WALKING_OUT') {
             a.position.x += a.userData.dirX * a.userData.speed * delta;
+            a.position.y = a.userData.baseY + Math.sin(time * a.userData.wobbleSpeed) * 0.04;
           }
 
-          a.lookAt(camWorldPos.x, a.position.y, camWorldPos.z);
-
-          // Rimuove quando esce totalmente dal prato
           if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
               (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
             scene.remove(a);
@@ -784,6 +777,7 @@
 
           ragdoll.velocity.y -= 9.8 * delta;
           ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
+          
           ragdoll.mesh.rotation.x += ragdoll.rotVelocity.x * delta;
           ragdoll.mesh.rotation.y += ragdoll.rotVelocity.y * delta;
           ragdoll.mesh.rotation.z += ragdoll.rotVelocity.z * delta;

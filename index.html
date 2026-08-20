@@ -53,12 +53,13 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.23.5";
+    const GAME_VERSION = "v3.23.6";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
     
     let controllers = [];
+    let controllerGrips = [];
     let gunPivots = [];
     let laserLines = [];
     let tracers = [];
@@ -67,6 +68,8 @@
     let lawnMesh = null;
     let fenceGroup = null;
     let flowers = [];
+    let hudGroup = null;
+    let grabbedHud = null;
     
     let gameState = 'LOBBY';
 
@@ -248,9 +251,11 @@
       });
       flowerTex.colorSpace = THREE.SRGBColorSpace;
 
-      // Dimensione dell'animale più piccolo (Taglia 1: 0.30)
       const size = 0.30;
+      // Trasliamo la geometria in modo che l'origine (0,0,0) corrisponda alla base della pianta
       const flowerGeo = new THREE.PlaneGeometry(size, size);
+      flowerGeo.translate(0, size / 2, 0);
+
       const flowerMat = new THREE.MeshBasicMaterial({
         map: flowerTex,
         transparent: true,
@@ -263,12 +268,12 @@
         const x = (Math.random() - 0.5) * 2.4;
         const z = -3.0 + (Math.random() - 0.5) * 2.4;
         
-        // Perpendicolari al pavimento (verticali), appoggiate con la base a y = 0
-        flowerMesh.position.set(x, size / 2, z);
+        // Posizionamento esatto sul prato (y = 0)
+        flowerMesh.position.set(x, 0, z);
         
         flowerMesh.userData = {
-          baseY: size / 2,
-          wobbleSpeed: 4 + Math.random() * 3
+          wobbleSpeed: 4 + Math.random() * 3,
+          maxTilt: 0.15
         };
 
         scene.add(flowerMesh);
@@ -518,7 +523,7 @@
     }
 
     function create3DHUD() {
-      const hudGroup = new THREE.Group();
+      hudGroup = new THREE.Group();
       hudGroup.position.set(-1.0, 0.4, -1.2);
       hudGroup.rotation.y = THREE.MathUtils.degToRad(25);
 
@@ -670,6 +675,8 @@
     function setupControllers() {
       for (let i = 0; i < 2; i++) {
         const controller = renderer.xr.getController(i);
+        const grip = renderer.xr.getControllerGrip(i);
+        
         const pivot = new THREE.Group();
         const gun = createRedGunModel();
         pivot.add(gun);
@@ -689,9 +696,33 @@
           if (controller === controllerRight) controllerRight = null;
           if (controller === controllerLeft) controllerLeft = null;
         });
+
+        // Grip squeeze events per spostare l'HUD
+        grip.addEventListener('squeezestart', () => {
+          if (!hudGroup) return;
+          const gripPos = new THREE.Vector3();
+          grip.getWorldPosition(gripPos);
+          const hudPos = new THREE.Vector3();
+          hudGroup.getWorldPosition(hudPos);
+
+          // Se il controller è vicino all'HUD (entro 0.6 metri), lo aggrappa
+          if (gripPos.distanceTo(hudPos) < 0.6) {
+            grabbedHud = grip;
+            grip.attach(hudGroup);
+          }
+        });
+
+        grip.addEventListener('squeezeend', () => {
+          if (grabbedHud === grip) {
+            grabbedHud = null;
+            cameraRig.attach(hudGroup); // Rilascia l'HUD riportandolo nel rig di riferimento
+          }
+        });
         
         cameraRig.add(controller);
+        scene.add(grip);
         controllers.push(controller);
+        controllerGrips.push(grip);
         gunPivots.push(pivot);
       }
     }
@@ -850,9 +881,9 @@
         }
       }
 
-      // Animazione wobble dei fiori
+      // Wobble esclusivamente orizzontale (rotazione Z attorno alla base fissa)
       flowers.forEach(f => {
-        f.position.y = f.userData.baseY + Math.sin(time * f.userData.wobbleSpeed) * 0.02;
+        f.rotation.z = Math.sin(time * f.userData.wobbleSpeed) * f.userData.maxTilt;
       });
 
       if (gameState === 'PLAYING') {

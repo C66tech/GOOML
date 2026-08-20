@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.26.0";
+    const GAME_VERSION = "v3.27.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -73,15 +73,11 @@
 
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
-    let activeHand = 'right';
-
-    let controllerRight = null;
-    let controllerLeft = null;
 
     let audioCtx = null;
 
     let hudCanvas, hudCtx, hudTexture;
-    let btnPitchDownMesh, btnPitchUpMesh, btnHandToggleMesh, btnStartMesh, btnLaserMesh;
+    let btnPitchDownMesh, btnPitchUpMesh, btnStartMesh, btnLaserMesh;
 
     let logoMesh = null;
 
@@ -153,7 +149,6 @@
       controls.target.set(0, 0, -2.5);
       controls.update();
 
-      // Ripristinata la gestione corretta dello sfondo per AR/VR
       renderer.xr.addEventListener('sessionstart', () => {
         const session = renderer.xr.getSession();
         controls.enabled = false;
@@ -182,7 +177,6 @@
       setupControllers();
       create3DHUD();
       createPresentationLogo();
-      updateGunVisibility();
       updateGunRotation();
 
       gameState = 'LOBBY';
@@ -236,12 +230,14 @@
     }
 
     function createFlowers() {
-      const tex = textureLoader.load('fiori.png');
+      const tex = textureLoader.load('fiori.png', undefined, undefined, () => {
+        console.warn('Image fiori.png not found.');
+      });
       tex.colorSpace = THREE.SRGBColorSpace;
-      const geo = new THREE.PlaneGeometry(0.3, 0.3);
+      const geo = new THREE.PlaneGeometry(0.3, 0.3); // Size like taglia 1
       const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
 
-      for(let i = 0; i < 10; i++) {
+      for (let i = 0; i < 10; i++) {
         const flower = new THREE.Mesh(geo, mat);
         const x = (Math.random() - 0.5) * 2.4;
         const z = -3.0 + (Math.random() - 0.5) * 2.4;
@@ -355,9 +351,10 @@
         ctx.fillStyle = '#00ff66'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'left';
         ctx.fillText('GAME RULES:', 30, 85);
         ctx.fillStyle = '#ffffff'; ctx.font = '14px Arial';
-        ctx.fillText('• Use hand trigger to select hand.', 30, 115);
-        ctx.fillText('• Shoot animals ONLY inside fence.', 30, 140);
-        ctx.fillText('• Hit outside = Demerit note.', 30, 165);
+        ctx.fillText('• Defend lawn: max 5 poops (Game Over).', 30, 115);
+        ctx.fillText('• Shoot animals ONLY at the fence (inside).', 30, 140);
+        ctx.fillText('• Hit outside = Demerit note (Wildlife habitat).', 30, 165);
+        ctx.fillText('• 4 Sizes: from 1 (hare, fast) to 4 (horse).', 30, 190);
         logoMat.map = new THREE.CanvasTexture(canvas);
       });
     }
@@ -369,8 +366,9 @@
 
     function create3DHUD() {
       hudGroup = new THREE.Group();
-      hudGroup.position.set(-1.0, 0.4, -1.2);
-      hudGroup.rotation.y = THREE.MathUtils.degToRad(25);
+      // Moved even further left (-1.4), lower (0.35), closer (-1.0), and angled 35 deg
+      hudGroup.position.set(-1.4, 0.35, -1.0);
+      hudGroup.rotation.y = THREE.MathUtils.degToRad(35);
 
       hudCanvas = document.createElement('canvas');
       hudCanvas.width = 600; hudCanvas.height = 340;
@@ -383,28 +381,23 @@
       );
       hudGroup.add(panelMesh);
 
-      btnPitchDownMesh = create3DButton("Pitch Down ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.35, -0.45, 0);
+      btnPitchDownMesh = create3DButton("Pitch Down ⤵", 0.42, 0.11);
+      btnPitchDownMesh.position.set(-0.28, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
-      btnPitchUpMesh = create3DButton("Pitch Up ⤴", 0.28, 0.11);
-      btnPitchUpMesh.position.set(0, -0.45, 0);
+      btnPitchUpMesh = create3DButton("Pitch Up ⤴", 0.42, 0.11);
+      btnPitchUpMesh.position.set(0.28, -0.45, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnHandToggleMesh = create3DButton("Use Left Hand", 0.28, 0.11, "#00ffff");
-      btnHandToggleMesh.position.set(0.35, -0.45, 0);
-      btnHandToggleMesh.userData = { action: 'toggle_hand' };
-      hudGroup.add(btnHandToggleMesh); hudButtons.push(btnHandToggleMesh);
-
-      btnLaserMesh = create3DButton(laserEnabled ? "Laser: ON" : "Laser: OFF", 0.28, 0.11, "#ff0000");
-      btnLaserMesh.position.set(-0.2, -0.60, 0);
+      btnLaserMesh = create3DButton(laserEnabled ? "Laser: ON" : "Laser: OFF", 0.42, 0.11, "#ff0000");
+      btnLaserMesh.position.set(-0.28, -0.60, 0);
       btnLaserMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserMesh); hudButtons.push(btnLaserMesh);
 
-      btnStartMesh = create3DButton("▶ START GAME", 0.28, 0.11, "#00ffcc");
-      btnStartMesh.position.set(0.2, -0.60, 0);
+      btnStartMesh = create3DButton("▶ START GAME", 0.42, 0.11, "#00ffcc");
+      btnStartMesh.position.set(0.28, -0.60, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
@@ -424,39 +417,10 @@
         pivot.add(createRedGunModel());
         controller.add(pivot);
         controller.addEventListener('selectstart', onXRShoot);
-
-        controller.addEventListener('connected', (event) => {
-          if (event.data.handedness === 'right') controllerRight = controller;
-          else if (event.data.handedness === 'left') controllerLeft = controller;
-          updateGunVisibility();
-        });
-
-        controller.addEventListener('disconnected', () => {
-          if (controller === controllerRight) controllerRight = null;
-          if (controller === controllerLeft) controllerLeft = null;
-        });
-
         cameraRig.add(controller);
         controllers.push(controller);
         gunPivots.push(pivot);
       }
-    }
-
-    // Fallback ripristinato per garantire la visibilità anche prima degli eventi connected
-    function updateGunVisibility() {
-      if (controllerRight) controllerRight.visible = (activeHand === 'right');
-      if (controllerLeft) controllerLeft.visible = (activeHand === 'left');
-
-      if (!controllerRight && !controllerLeft && controllers.length >= 2) {
-        controllers[0].visible = (activeHand === 'right');
-        controllers[1].visible = (activeHand === 'left');
-      }
-    }
-
-    function toggleHand() {
-      activeHand = (activeHand === 'right') ? 'left' : 'right';
-      updateGunVisibility();
-      update3DButtonText(btnHandToggleMesh, activeHand === 'right' ? "Use Left Hand" : "Use Right Hand", "#00ffff");
     }
 
     function update3DButtonText(btnMesh, label, colorHex = '#00ff66') {
@@ -482,9 +446,6 @@
 
     function onXRShoot(event) {
       const controller = event.target;
-      if (activeHand === 'right' && controller !== controllerRight && controller !== controllers[0]) return;
-      if (activeHand === 'left' && controller !== controllerLeft && controller !== controllers[1]) return;
-
       const pivot = controller.children.find(c => gunPivots.includes(c));
       if (!pivot) return;
 
@@ -511,7 +472,6 @@
           const act = hit.object.userData.action;
           if (act === 'pitch_down') { currentGunPitch += 0.017; updateGunRotation(); }
           else if (act === 'pitch_up') { currentGunPitch -= 0.017; updateGunRotation(); }
-          else if (act === 'toggle_hand') toggleHand();
           else if (act === 'toggle_laser') toggleLaser();
           else if (act === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
@@ -523,14 +483,32 @@
     }
 
     function updateGunRotation() { gunPivots.forEach(pivot => { pivot.rotation.x = currentGunPitch; }); updateHudTexture(); }
+    
     function updateHudTexture() {
       hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 600, 340);
       hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 592, 332);
       hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
-      hudCtx.fillStyle = '#00ffff'; hudCtx.fillText('Time: ' + Math.floor(survivalTime/60)+':'+Math.floor(survivalTime%60), 28, 75);
-      hudCtx.fillStyle = '#00ff66'; hudCtx.fillText('Status: ' + (gameState === 'PLAYING' ? 'DEFENDING' : 'LOBBY'), 28, 110);
-      hudCtx.fillStyle = '#ffcc00'; hudCtx.fillText('Poop: ' + poops.length + '/' + MAX_POOPS, 28, 145);
-      hudCtx.fillStyle = '#00ff66'; hudCtx.fillText('Score: ' + score, 28, 180);
+      hudCtx.fillStyle = '#888888'; hudCtx.font = 'bold 16px Arial'; hudCtx.fillText(GAME_VERSION, 510, 40);
+      hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 20px Arial'; hudCtx.fillText('Defense Time: ' + Math.floor(survivalTime/60)+':'+Math.floor(survivalTime%60), 28, 75);
+      
+      if (gameState === 'GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial'; hudCtx.fillText('Your garden is a latrine!', 28, 120);
+      } else if (gameState === 'HABITAT_GAMEOVER') {
+        hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 20px Arial'; hudCtx.fillText('Demerit: attacking wildlife', 28, 110);
+        hudCtx.fillText('in its own natural habitat!', 28, 138);
+      } else {
+        hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
+        hudCtx.font = 'bold 20px Arial';
+        hudCtx.fillText('Status: ' + (gameState === 'PLAYING' ? 'DEFENDING' : 'LOBBY / PAUSE'), 28, 120);
+      }
+
+      hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
+      hudCtx.font = 'bold 22px Arial'; hudCtx.fillText(`Poop on lawn: ${poops.length} / ${MAX_POOPS}`, 28, 165);
+      hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
+      hudCtx.font = 'bold 28px Arial'; hudCtx.fillText('Score: ' + score, 28, 215);
+      
+      const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
+      hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial'; hudCtx.fillText('Pitch: ' + degPitch + '°', 28, 260);
       hudTexture.needsUpdate = true;
     }
 
@@ -540,6 +518,7 @@
       const delta = clock.getDelta();
       const time = clock.getElapsedTime();
       
+      // Flowers wobble animation
       flowers.forEach(f => {
          f.position.y = f.userData.baseY + Math.sin(time * f.userData.wobbleSpeed) * 0.02;
       });
@@ -550,18 +529,76 @@
          const currentSpawnInterval = Math.max(0.3, 1.0 - (survivalTime * 0.01));
          spawnTimer += delta;
          if (spawnTimer >= currentSpawnInterval) { spawnTimer = 0; spawnAnimalFromOutside(); }
+         
          activeAnimals.forEach((a, i) => {
             a.position.x += a.userData.dirX * a.userData.speed * delta;
             a.position.y = a.userData.baseY + Math.sin(time * a.userData.wobbleSpeed) * 0.04;
             if (a.userData.state === 'WALKING_IN' && ((a.userData.dirX > 0 && a.position.x >= a.userData.poopTargetX) || (a.userData.dirX < 0 && a.position.x <= a.userData.poopTargetX))) {
                 a.userData.state = 'POOPING'; a.userData.poopTimer = 0.5;
             } else if (a.userData.state === 'POOPING') {
-                a.userData.poopTimer -= delta; if (a.userData.poopTimer <= 0) { createPoopModel(a.position.x, a.position.z, a.userData.sizeScaleFactor); playPoopSound(); a.userData.state = 'WALKING_OUT'; if (poops.length >= MAX_POOPS) triggerGameOver(); }
+                a.userData.poopTimer -= delta; 
+                if (a.userData.poopTimer <= 0) { 
+                  createPoopModel(a.position.x, a.position.z, a.userData.sizeScaleFactor); 
+                  playPoopSound(); 
+                  a.userData.state = 'WALKING_OUT'; 
+                  if (poops.length >= MAX_POOPS) triggerGameOver(); 
+                }
             }
          });
          updateHudTexture();
       }
       renderer.render(scene, camera);
+    }
+
+    function playGunshotSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const bufferSize = audioCtx.sampleRate * 0.12;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1400, now);
+      filter.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(1.0, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+      noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+      noise.start(now);
+    }
+
+    function playPoopSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+      gain.gain.setValueAtTime(0.6, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.15);
+    }
+
+    function playYeetSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
+      gain.gain.setValueAtTime(0.7, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.25);
     }
   </script>
 </body>

@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   
-  <!-- TAG META ANTI-CACHE -->
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
@@ -37,7 +36,6 @@
     }
   </style>
 
-  <!-- Import Map Three.js via ES Modules -->
   <script type="importmap">
     {
       "imports": {
@@ -56,9 +54,11 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.2.0";
+    const GAME_VERSION = "v3.3.0";
 
     let scene, camera, renderer, controls;
+    let cameraRig; // <-- NOVITÀ: Contenitore per il giocatore (permette l'offset dell'altezza)
+    
     let controllers = [];
     let gunPivots = [];
     let laserLines = [];
@@ -68,24 +68,18 @@
     let lawnMesh = null;
     let fenceGroup = null;
     
-    // STATO DEL GIOCO: 'LOBBY', 'PLAYING', 'GAMEOVER'
     let gameState = 'LOBBY';
 
-    // INCLINAZIONE DEFAULT -14°
     let currentGunPitch = THREE.MathUtils.degToRad(-14);
     let laserEnabled = true;
 
-    // Web Audio API Context
     let audioCtx = null;
 
-    // Elementi HUD 3D
     let hudCanvas, hudCtx, hudTexture;
-    let btnPitchDownMesh, btnPitchUpMesh, btnLaserToggleMesh, btnStartMesh;
+    let btnPitchDownMesh, btnPitchUpMesh, btnLaserToggleMesh, btnHeightFixMesh, btnStartMesh;
 
-    // Logo Mesh
     let logoMesh = null;
 
-    // Gestione unificata gioco
     let activeAnimals = [];
     let flyingRagdolls = [];
     let poops = [];
@@ -96,10 +90,8 @@
 
     const MAX_POOPS = 5;
 
-    // Cache delle Texture caricate
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-
     const AVAILABLE_IMAGES = ['a21', 'b21'];
 
     const SIZE_MAP = {
@@ -122,16 +114,20 @@
       return textureCache[fileName];
     }
 
-    // ==========================================
-    // INIZIALIZZAZIONE APPLICAZIONE WEBXR
-    // ==========================================
     init();
 
     function init() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a2634);
 
+      // --- CAMERA RIG SETUP ---
+      // Invece di mettere la telecamera nella scena, la mettiamo nel Rig.
+      // Questo ci permette di traslare l'intero giocatore se WebXR fallisce la quota pavimento.
+      cameraRig = new THREE.Group();
+      scene.add(cameraRig);
+
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+      cameraRig.add(camera);
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
       scene.add(ambientLight);
@@ -140,37 +136,30 @@
       dirLight.position.set(5, 12, 6);
       scene.add(dirLight);
 
-      // Prato e Staccionata
       createLawnAndFence();
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
-
-      // FORZATURA SPAZIO DI RIFERIMENTO WEBXR
       renderer.xr.setReferenceSpaceType('local-floor');
 
       document.body.appendChild(renderer.domElement);
 
-      // Controlli Desktop (Altezza Occhi ~1.6m)
       controls = new OrbitControls(camera, renderer.domElement);
-      camera.position.set(0, 1.6, 0);
-      controls.target.set(0, 0.6, -2.5);
+      cameraRig.position.set(0, 1.6, 0); // Offset iniziale per il desktop
+      controls.target.set(0, 0, -2.5);
       controls.update();
 
-      // ==========================================
-      // FIX WEBXR: FORZIAMO IL PAVIMENTO E AZZERIAMO LA CAMERA
-      // ==========================================
       renderer.xr.addEventListener('sessionstart', () => {
         const session = renderer.xr.getSession();
         
-        // Disabilita OrbitControls per non interferire con il tracciamento XR
         controls.enabled = false;
         
-        // Azzera ogni altezza fittizia desktop. Sarà WebXR ad alzare la camera in base al Guardian
-        camera.position.set(0, 0, 0);
-        camera.rotation.set(0, 0, 0);
+        // In XR la camera viene spostata dal visore, quindi azzeriamo il Rig.
+        // Se il local-floor funziona, la testa sarà a 1.6m reali.
+        // Se non funziona e vedi il pavimento in faccia, userai il bottone "Fix Altezza".
+        cameraRig.position.set(0, 0, 0);
 
         if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
           scene.background = null;
@@ -179,17 +168,15 @@
       });
 
       renderer.xr.addEventListener('sessionend', () => {
-        // Riattiva i controlli desktop
         controls.enabled = true;
-        camera.position.set(0, 1.6, 0);
-        controls.target.set(0, 0.6, -2.5);
+        cameraRig.position.set(0, 1.6, 0);
+        controls.target.set(0, 0, -2.5);
         controls.update();
 
         scene.background = new THREE.Color(0x1a2634);
         if (lawnMesh) lawnMesh.visible = true;
       });
 
-      // Passiamo le opzioni obbligatorie per garantire che WebXR carichi il pavimento reale
       const xrOptions = { requiredFeatures: ['local-floor'] };
       document.body.appendChild(VRButton.createButton(renderer, xrOptions));
       document.body.appendChild(ARButton.createButton(renderer, xrOptions));
@@ -210,9 +197,15 @@
     }
 
     function createLawnAndFence() {
-      // Prato perfettamente a livello del pavimento (Y = 0)
-      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
-      const lawnMat = new THREE.MeshStandardMaterial({ color: 0x38761d, roughness: 0.9 });
+      // --- PAVIMENTO IN WIREFRAME ---
+      // Geometria suddivisa (25x25) per creare un bell'effetto griglia
+      const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0, 25, 25);
+      const lawnMat = new THREE.MeshBasicMaterial({ 
+        color: 0x00ff66, // Verde fluo
+        wireframe: true, // WIREFRAME ATTIVATO!
+        transparent: true,
+        opacity: 0.6
+      });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
       lawnMesh.rotation.x = -Math.PI / 2;
       lawnMesh.position.set(0, 0, -2.5);
@@ -255,7 +248,6 @@
       scene.add(fenceGroup);
     }
 
-    // MODELLO CACCA MARRONE
     function createPoopModel(x, z) {
       const poopGroup = new THREE.Group();
       const mat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.9 });
@@ -297,11 +289,7 @@
     function triggerGameOver() {
       gameState = 'GAMEOVER';
       updateHudTexture();
-
-      // Pausa di 3 secondi, poi ritorno automatico alla LOBBY
-      setTimeout(() => {
-        stopGame();
-      }, 3000);
+      setTimeout(() => { stopGame(); }, 3000);
     }
 
     function cleanupGame() {
@@ -355,7 +343,11 @@
       const centerZ = -2.5;
 
       animalMesh.position.set(startX, sizeData.scale / 2, centerZ);
-      animalMesh.lookAt(camera.position.x, animalMesh.position.y, camera.position.z);
+      
+      // LookAt usa la posizione assoluta del visore (estratta dal Rig)
+      const camWorldPos = new THREE.Vector3();
+      camera.getWorldPosition(camWorldPos);
+      animalMesh.lookAt(camWorldPos.x, animalMesh.position.y, camWorldPos.z);
 
       animalMesh.userData = {
         active: true,
@@ -452,57 +444,63 @@
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
       hudCanvas = document.createElement('canvas');
-      hudCanvas.width = 512; hudCanvas.height = 340;
+      hudCanvas.width = 600; hudCanvas.height = 340;
       hudCtx = hudCanvas.getContext('2d');
       hudTexture = new THREE.CanvasTexture(hudCanvas);
 
       const panelMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.0, 0.66),
+        new THREE.PlaneGeometry(1.2, 0.68),
         new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, side: THREE.DoubleSide })
       );
       hudGroup.add(panelMesh);
 
-      btnPitchDownMesh = create3DButton("Inclina Avanti ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.33, -0.45, 0);
+      // 4 BOTTONI IN FILA
+      btnPitchDownMesh = create3DButton("Giu ⤵", 0.26, 0.11);
+      btnPitchDownMesh.position.set(-0.42, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
-      btnPitchUpMesh = create3DButton("Inclina Indietro ⤴", 0.28, 0.11);
-      btnPitchUpMesh.position.set(-0.02, -0.45, 0);
+      btnPitchUpMesh = create3DButton("Su ⤴", 0.26, 0.11);
+      btnPitchUpMesh.position.set(-0.14, -0.45, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      btnLaserToggleMesh = create3DButton("Laser: ON", 0.28, 0.11);
-      btnLaserToggleMesh.position.set(0.29, -0.45, 0);
+      btnLaserToggleMesh = create3DButton("Laser", 0.26, 0.11);
+      btnLaserToggleMesh.position.set(0.14, -0.45, 0);
       btnLaserToggleMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserToggleMesh); hudButtons.push(btnLaserToggleMesh);
+
+      // NUOVO BOTTONE: FIX ALTEZZA (Compensa il bug di WebXR sollevandoti di 1.6m)
+      btnHeightFixMesh = create3DButton("Altezza ⬆", 0.26, 0.11, "#ffcc00");
+      btnHeightFixMesh.position.set(0.42, -0.45, 0);
+      btnHeightFixMesh.userData = { action: 'fix_height' };
+      hudGroup.add(btnHeightFixMesh); hudButtons.push(btnHeightFixMesh);
 
       btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
       btnStartMesh.position.set(0, -0.59, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
-      scene.add(hudGroup);
+      // L'HUD è attaccato al Camera Rig, così se modifichi l'altezza, lui ti segue.
+      cameraRig.add(hudGroup); 
     }
 
     function updateHudTexture() {
-      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 340);
-      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 332);
+      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 600, 340);
+      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 592, 332);
 
-      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 24px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
+      hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 26px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
 
       // INDICATORE VERSIONE IN ALTO A DESTRA
       hudCtx.fillStyle = '#888888'; hudCtx.font = 'bold 16px Arial';
-      hudCtx.fillText(GAME_VERSION, 420, 40);
+      hudCtx.fillText(GAME_VERSION, 510, 40);
 
-      // TIMER DI SOPRAVVIVENZA
       const mins = Math.floor(survivalTime / 60);
       const secs = Math.floor(survivalTime % 60);
       const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
       hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 20px Arial';
       hudCtx.fillText('Tempo Difesa: ' + timeStr, 28, 75);
 
-      // MESSAGGIO DI GAME OVER
       if (gameState === 'GAMEOVER') {
         hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial';
         hudCtx.fillText('Il tuo giardino è una latrina !', 28, 120);
@@ -512,17 +510,14 @@
         hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 120);
       }
 
-      // CACCHE SUL PRATO
       hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
       hudCtx.font = 'bold 22px Arial';
       hudCtx.fillText(`Cacca sul prato: ${poops.length} / ${MAX_POOPS}`, 28, 160);
 
-      // PUNTI
       hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
       hudCtx.font = 'bold 28px Arial';
       hudCtx.fillText('Punti: ' + score, 28, 210);
 
-      // INCLINAZIONE
       const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
       hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial';
       hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 255);
@@ -595,7 +590,10 @@
         pivot.add(gun);
         controller.add(pivot);
         controller.addEventListener('selectstart', onXRShoot);
-        scene.add(controller);
+        
+        // Aggiungiamo i controller al RIG, per farli traslare con il giocatore
+        cameraRig.add(controller);
+        
         controllers.push(controller);
         gunPivots.push(pivot);
       }
@@ -609,7 +607,6 @@
     function toggleLaser() {
       laserEnabled = !laserEnabled;
       laserLines.forEach(line => line.visible = laserEnabled);
-      update3DButtonText(btnLaserToggleMesh, laserEnabled ? "Laser: ON" : "Laser: OFF");
     }
 
     function onXRShoot(event) {
@@ -649,10 +646,16 @@
 
         const hitBtn = hudButtons.find(b => b === hit.object);
         if (hitBtn) {
-          if (hitBtn.userData.action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
-          else if (hitBtn.userData.action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
-          else if (hitBtn.userData.action === 'toggle_laser') { toggleLaser(); }
-          else if (hitBtn.userData.action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
+          const action = hitBtn.userData.action;
+          if (action === 'pitch_down') { currentGunPitch += THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (action === 'pitch_up') { currentGunPitch -= THREE.MathUtils.degToRad(1); updateGunRotation(); }
+          else if (action === 'toggle_laser') { toggleLaser(); }
+          // LOGICA FIX ALTEZZA: Aggiunge o toglie 1.6m alla Y del rig intero
+          else if (action === 'fix_height') { 
+            cameraRig.position.y = (cameraRig.position.y === 0) ? 1.6 : 0; 
+            playPopSound(); 
+          }
+          else if (action === 'toggle_start') { if (gameState === 'PLAYING') stopGame(); else startGame(); }
         } else if (gameState === 'PLAYING') {
           const animal = activeAnimals.find(a => a === hit.object);
           if (animal && animal.userData.active) {
@@ -689,6 +692,21 @@
       }
 
       createTracer(origin, endPoint);
+    }
+
+    function playPopSound() {
+      initAudio();
+      if (!audioCtx) return;
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(350, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.08);
+      gain.gain.setValueAtTime(0.8, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + 0.12);
     }
 
     function createTracer(start, end) {
@@ -736,17 +754,16 @@
           spawnAnimalFromOutside();
         }
 
-        // Movimento Orizzontale
+        const camWorldPos = new THREE.Vector3();
+        camera.getWorldPosition(camWorldPos);
+
         for (let i = activeAnimals.length - 1; i >= 0; i--) {
           const a = activeAnimals[i];
           a.position.x += a.userData.dirX * a.userData.speed * delta;
+          a.lookAt(camWorldPos.x, a.position.y, camWorldPos.z);
 
-          a.lookAt(camera.position.x, a.position.y, camera.position.z);
-
-          // RILASCIO CACCA NEL 20% CENTRALE
           if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.5) {
             a.userData.hasPooped = true;
-
             const randomX = (Math.random() - 0.5) * 1.0; 
             const randomZ = -2.5 + (Math.random() - 0.5) * 1.0; 
 
@@ -773,7 +790,6 @@
           ragdoll.life -= delta;
 
           ragdoll.velocity.y -= 9.8 * delta;
-
           ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
           ragdoll.mesh.rotation.x += ragdoll.rotVelocity.x * delta;
           ragdoll.mesh.rotation.y += ragdoll.rotVelocity.y * delta;

@@ -56,7 +56,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.1.0";
+    const GAME_VERSION = "v3.2.0";
 
     let scene, camera, renderer, controls;
     let controllers = [];
@@ -148,23 +148,10 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
 
-      // CONFIGURAZIONE LIVELLO PAVIMENTO WEBXR NATIVO (Y = 0)
+      // FORZATURA SPAZIO DI RIFERIMENTO WEBXR
       renderer.xr.setReferenceSpaceType('local-floor');
 
       document.body.appendChild(renderer.domElement);
-
-      renderer.xr.addEventListener('sessionstart', () => {
-        const session = renderer.xr.getSession();
-        if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
-          scene.background = null;
-          if (lawnMesh) lawnMesh.visible = false;
-        }
-      });
-
-      renderer.xr.addEventListener('sessionend', () => {
-        scene.background = new THREE.Color(0x1a2634);
-        if (lawnMesh) lawnMesh.visible = true;
-      });
 
       // Controlli Desktop (Altezza Occhi ~1.6m)
       controls = new OrbitControls(camera, renderer.domElement);
@@ -172,8 +159,40 @@
       controls.target.set(0, 0.6, -2.5);
       controls.update();
 
-      document.body.appendChild(VRButton.createButton(renderer));
-      document.body.appendChild(ARButton.createButton(renderer));
+      // ==========================================
+      // FIX WEBXR: FORZIAMO IL PAVIMENTO E AZZERIAMO LA CAMERA
+      // ==========================================
+      renderer.xr.addEventListener('sessionstart', () => {
+        const session = renderer.xr.getSession();
+        
+        // Disabilita OrbitControls per non interferire con il tracciamento XR
+        controls.enabled = false;
+        
+        // Azzera ogni altezza fittizia desktop. Sarà WebXR ad alzare la camera in base al Guardian
+        camera.position.set(0, 0, 0);
+        camera.rotation.set(0, 0, 0);
+
+        if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
+          scene.background = null;
+          if (lawnMesh) lawnMesh.visible = false;
+        }
+      });
+
+      renderer.xr.addEventListener('sessionend', () => {
+        // Riattiva i controlli desktop
+        controls.enabled = true;
+        camera.position.set(0, 1.6, 0);
+        controls.target.set(0, 0.6, -2.5);
+        controls.update();
+
+        scene.background = new THREE.Color(0x1a2634);
+        if (lawnMesh) lawnMesh.visible = true;
+      });
+
+      // Passiamo le opzioni obbligatorie per garantire che WebXR carichi il pavimento reale
+      const xrOptions = { requiredFeatures: ['local-floor'] };
+      document.body.appendChild(VRButton.createButton(renderer, xrOptions));
+      document.body.appendChild(ARButton.createButton(renderer, xrOptions));
 
       setupControllers();
       create3DHUD();
@@ -724,25 +743,22 @@
 
           a.lookAt(camera.position.x, a.position.y, camera.position.z);
 
-          // RILASCIO CACCA NEL 20% CENTRALE DEL GIARDINO (X tra -0.5 e 0.5)
+          // RILASCIO CACCA NEL 20% CENTRALE
           if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.5) {
             a.userData.hasPooped = true;
 
-            // Offset casuale nell'area centrale (20% centrale)
             const randomX = (Math.random() - 0.5) * 1.0; 
             const randomZ = -2.5 + (Math.random() - 0.5) * 1.0; 
 
             createPoopModel(randomX, randomZ);
             updateHudTexture();
 
-            // GAME OVER A 5 CACCHE
             if (poops.length >= MAX_POOPS) {
               triggerGameOver();
               break;
             }
           }
 
-          // Rimuove quando esce
           if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
               (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
             scene.remove(a);
@@ -752,7 +768,6 @@
           }
         }
 
-        // Volo ragdoll
         for (let i = flyingRagdolls.length - 1; i >= 0; i--) {
           const ragdoll = flyingRagdolls[i];
           ragdoll.life -= delta;

@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // GAME VERSION
-    const GAME_VERSION = "v3.23.6";
+    const GAME_VERSION = "v3.23.7";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -252,7 +252,6 @@
       flowerTex.colorSpace = THREE.SRGBColorSpace;
 
       const size = 0.30;
-      // Trasliamo la geometria in modo che l'origine (0,0,0) corrisponda alla base della pianta
       const flowerGeo = new THREE.PlaneGeometry(size, size);
       flowerGeo.translate(0, size / 2, 0);
 
@@ -263,12 +262,30 @@
         side: THREE.DoubleSide
       });
 
+      const minDistance = 0.4;
+      const maxAttempts = 50;
+
       for (let i = 0; i < 10; i++) {
+        let x, z, valid = false;
+        let attempts = 0;
+
+        while (!valid && attempts < maxAttempts) {
+          x = (Math.random() - 0.5) * 2.4;
+          z = -3.0 + (Math.random() - 0.5) * 2.4;
+          valid = true;
+
+          for (let f of flowers) {
+            const dx = f.position.x - x;
+            const dz = f.position.z - z;
+            if (Math.sqrt(dx * dx + dz * dz) < minDistance) {
+              valid = false;
+              break;
+            }
+          }
+          attempts++;
+        }
+
         const flowerMesh = new THREE.Mesh(flowerGeo, flowerMat);
-        const x = (Math.random() - 0.5) * 2.4;
-        const z = -3.0 + (Math.random() - 0.5) * 2.4;
-        
-        // Posizionamento esatto sul prato (y = 0)
         flowerMesh.position.set(x, 0, z);
         
         flowerMesh.userData = {
@@ -449,7 +466,7 @@
         ctx.fillText('• Shoot animals ONLY at the fence (inside).', 30, 140);
         ctx.fillText('• Hit outside = Demerit note (Wildlife habitat).', 30, 165);
         ctx.fillText('• 4 Sizes: from 1 (hare, fast) to 4 (horse).', 30, 190);
-        ctx.fillText('• Use the active hand trigger (from HUD).', 30, 215);
+        ctx.fillText('• Use grip button to grab and move HUD.', 30, 215);
 
         logoMat.map = new THREE.CanvasTexture(canvas);
         logoMesh.scale.set(1.6, 1.12, 1);
@@ -697,25 +714,24 @@
           if (controller === controllerLeft) controllerLeft = null;
         });
 
-        // Grip squeeze events per spostare l'HUD
-        grip.addEventListener('squeezestart', () => {
+        // Gestione grab HUD tramite tasto squeeze (grip) sul controller
+        controller.addEventListener('squeezestart', () => {
           if (!hudGroup) return;
-          const gripPos = new THREE.Vector3();
-          grip.getWorldPosition(gripPos);
+          const controllerPos = new THREE.Vector3();
+          controller.getWorldPosition(controllerPos);
           const hudPos = new THREE.Vector3();
           hudGroup.getWorldPosition(hudPos);
 
-          // Se il controller è vicino all'HUD (entro 0.6 metri), lo aggrappa
-          if (gripPos.distanceTo(hudPos) < 0.6) {
-            grabbedHud = grip;
-            grip.attach(hudGroup);
+          if (controllerPos.distanceTo(hudPos) < 0.7) {
+            grabbedHud = controller;
+            controller.attach(hudGroup);
           }
         });
 
-        grip.addEventListener('squeezeend', () => {
-          if (grabbedHud === grip) {
+        controller.addEventListener('squeezeend', () => {
+          if (grabbedHud === controller) {
             grabbedHud = null;
-            cameraRig.attach(hudGroup); // Rilascia l'HUD riportandolo nel rig di riferimento
+            cameraRig.attach(hudGroup);
           }
         });
         
@@ -881,7 +897,7 @@
         }
       }
 
-      // Wobble esclusivamente orizzontale (rotazione Z attorno alla base fissa)
+      // Wobble esclusivamente orizzontale (rotazione Z con base bloccata a y = 0)
       flowers.forEach(f => {
         f.rotation.z = Math.sin(time * f.userData.wobbleSpeed) * f.userData.maxTilt;
       });

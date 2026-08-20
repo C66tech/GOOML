@@ -17,6 +17,24 @@
       background-color: #000;
       font-family: Arial, sans-serif;
     }
+
+    /* FIX LAYOUT PULSANTI AR E VR AFFIANCATI IN BASSO */
+    #VRButton, #ARButton {
+      position: absolute !important;
+      bottom: 20px !important;
+      width: 140px !important;
+      padding: 12px 6px !important;
+      font-size: 13px !important;
+      font-weight: bold !important;
+    }
+
+    #VRButton {
+      left: calc(50% - 150px) !important;
+    }
+
+    #ARButton {
+      left: calc(50% + 10px) !important;
+    }
   </style>
 
   <!-- Import Map Three.js via ES Modules -->
@@ -36,6 +54,9 @@
     import { VRButton } from 'three/addons/webxr/VRButton.js';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // VERSIONE DEL GIOCO
+    const GAME_VERSION = "v3.1.0";
 
     let scene, camera, renderer, controls;
     let controllers = [];
@@ -70,8 +91,8 @@
     let poops = [];
     let spawnTimer = 0;
     let survivalTime = 0;
-    let baseSpawnInterval = 3.0; // Diminuisce col tempo
-    let difficultyMultiplier = 1.0; // Aumenta col tempo
+    let baseSpawnInterval = 3.0;
+    let difficultyMultiplier = 1.0;
 
     const MAX_POOPS = 5;
 
@@ -111,10 +132,6 @@
       scene.background = new THREE.Color(0x1a2634);
 
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-      
-      // PER DESKTOP: Mettiamo l'altezza simulata a 1.6m.
-      // IN WEBXR: Verrà sovrascritta dall'altezza reale del tracciamento visore
-      camera.position.set(0, 1.6, 0);
 
       const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
       scene.add(ambientLight);
@@ -131,7 +148,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
 
-      // CONFIGURAZIONE LIVELLO PAVIMENTO WEBXR NATIVO
+      // CONFIGURAZIONE LIVELLO PAVIMENTO WEBXR NATIVO (Y = 0)
       renderer.xr.setReferenceSpaceType('local-floor');
 
       document.body.appendChild(renderer.domElement);
@@ -149,8 +166,10 @@
         if (lawnMesh) lawnMesh.visible = true;
       });
 
+      // Controlli Desktop (Altezza Occhi ~1.6m)
       controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(0, 0.8, -2.5);
+      camera.position.set(0, 1.6, 0);
+      controls.target.set(0, 0.6, -2.5);
       controls.update();
 
       document.body.appendChild(VRButton.createButton(renderer));
@@ -172,7 +191,7 @@
     }
 
     function createLawnAndFence() {
-      // Prato sul pavimento (Y = 0)
+      // Prato perfettamente a livello del pavimento (Y = 0)
       const lawnGeo = new THREE.PlaneGeometry(5.0, 5.0);
       const lawnMat = new THREE.MeshStandardMaterial({ color: 0x38761d, roughness: 0.9 });
       lawnMesh = new THREE.Mesh(lawnGeo, lawnMat);
@@ -256,10 +275,14 @@
       update3DButtonText(btnStartMesh, "▶ START GIOCO", "#00ffcc");
     }
 
-    function gameOver() {
+    function triggerGameOver() {
       gameState = 'GAMEOVER';
       updateHudTexture();
-      update3DButtonText(btnStartMesh, "🔄 RIGIOCA", "#00ffcc");
+
+      // Pausa di 3 secondi, poi ritorno automatico alla LOBBY
+      setTimeout(() => {
+        stopGame();
+      }, 3000);
     }
 
     function cleanupGame() {
@@ -284,7 +307,6 @@
       poops = [];
     }
 
-    // --- MOVIMENTO ORIZZONTALE SULLA LINEA CENTRALE ---
     function spawnAnimalFromOutside() {
       if (AVAILABLE_IMAGES.length === 0) return;
 
@@ -308,20 +330,18 @@
 
       const animalMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      // Scorre in orizzontale sulla linea centrale Z = -2.5
       const fromLeft = Math.random() > 0.5;
       const startX = fromLeft ? -3.2 : 3.2;
       const targetX = fromLeft ? 3.2 : -3.2;
       const centerZ = -2.5;
 
-      // Posizione a terra (Y = scale/2 per appoggiarlo sul prato)
       animalMesh.position.set(startX, sizeData.scale / 2, centerZ);
       animalMesh.lookAt(camera.position.x, animalMesh.position.y, camera.position.z);
 
       animalMesh.userData = {
         active: true,
         points: sizeData.points,
-        speed: sizeData.speed * difficultyMultiplier, // Velocità incrementale
+        speed: sizeData.speed * difficultyMultiplier,
         dirX: fromLeft ? 1 : -1,
         targetX: targetX,
         hasPooped: false,
@@ -413,33 +433,33 @@
       hudGroup.rotation.y = THREE.MathUtils.degToRad(22);
 
       hudCanvas = document.createElement('canvas');
-      hudCanvas.width = 512; hudCanvas.height = 320;
+      hudCanvas.width = 512; hudCanvas.height = 340;
       hudCtx = hudCanvas.getContext('2d');
       hudTexture = new THREE.CanvasTexture(hudCanvas);
 
       const panelMesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.0, 0.62),
+        new THREE.PlaneGeometry(1.0, 0.66),
         new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true, side: THREE.DoubleSide })
       );
       hudGroup.add(panelMesh);
 
       btnPitchDownMesh = create3DButton("Inclina Avanti ⤵", 0.28, 0.11);
-      btnPitchDownMesh.position.set(-0.33, -0.42, 0);
+      btnPitchDownMesh.position.set(-0.33, -0.45, 0);
       btnPitchDownMesh.userData = { action: 'pitch_down' };
       hudGroup.add(btnPitchDownMesh); hudButtons.push(btnPitchDownMesh);
 
       btnPitchUpMesh = create3DButton("Inclina Indietro ⤴", 0.28, 0.11);
-      btnPitchUpMesh.position.set(-0.02, -0.42, 0);
+      btnPitchUpMesh.position.set(-0.02, -0.45, 0);
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
       btnLaserToggleMesh = create3DButton("Laser: ON", 0.28, 0.11);
-      btnLaserToggleMesh.position.set(0.29, -0.42, 0);
+      btnLaserToggleMesh.position.set(0.29, -0.45, 0);
       btnLaserToggleMesh.userData = { action: 'toggle_laser' };
       hudGroup.add(btnLaserToggleMesh); hudButtons.push(btnLaserToggleMesh);
 
       btnStartMesh = create3DButton("▶ START GIOCO", 0.43, 0.11, "#00ffcc");
-      btnStartMesh.position.set(0, -0.56, 0);
+      btnStartMesh.position.set(0, -0.59, 0);
       btnStartMesh.userData = { action: 'toggle_start' };
       hudGroup.add(btnStartMesh); hudButtons.push(btnStartMesh);
 
@@ -447,42 +467,46 @@
     }
 
     function updateHudTexture() {
-      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 320);
-      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 312);
+      hudCtx.fillStyle = '#0f1a0f'; hudCtx.fillRect(0, 0, 512, 340);
+      hudCtx.strokeStyle = '#00ff66'; hudCtx.lineWidth = 8; hudCtx.strokeRect(4, 4, 504, 332);
 
       hudCtx.fillStyle = '#ffcc00'; hudCtx.font = 'bold 24px Arial'; hudCtx.fillText('GET OFF OF MY LAWN!', 28, 40);
 
-      // TIMER DI SOPRAVVIVENZA IN ALTO
+      // INDICATORE VERSIONE IN ALTO A DESTRA
+      hudCtx.fillStyle = '#888888'; hudCtx.font = 'bold 16px Arial';
+      hudCtx.fillText(GAME_VERSION, 420, 40);
+
+      // TIMER DI SOPRAVVIVENZA
       const mins = Math.floor(survivalTime / 60);
       const secs = Math.floor(survivalTime % 60);
       const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-      hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 22px Arial';
+      hudCtx.fillStyle = '#00ffff'; hudCtx.font = 'bold 20px Arial';
       hudCtx.fillText('Tempo Difesa: ' + timeStr, 28, 75);
 
-      // STATO GIOCO
+      // MESSAGGIO DI GAME OVER
       if (gameState === 'GAMEOVER') {
         hudCtx.fillStyle = '#ff2a6d'; hudCtx.font = 'bold 24px Arial';
-        hudCtx.fillText('GAME OVER! Prato Invaso!', 28, 115);
+        hudCtx.fillText('Il tuo giardino è una latrina !', 28, 120);
       } else {
         hudCtx.fillStyle = gameState === 'PLAYING' ? '#00ff66' : '#ffb703';
         hudCtx.font = 'bold 20px Arial';
-        hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 115);
+        hudCtx.fillText('Stato: ' + (gameState === 'PLAYING' ? 'IN DIFESA' : 'LOBBY / PAUSA'), 28, 120);
       }
 
       // CACCHE SUL PRATO
       hudCtx.fillStyle = poops.length >= 4 ? '#ff2a6d' : '#ffcc00';
       hudCtx.font = 'bold 22px Arial';
-      hudCtx.fillText(`Cacca sul prato: ${poops.length} / ${MAX_POOPS}`, 28, 155);
+      hudCtx.fillText(`Cacca sul prato: ${poops.length} / ${MAX_POOPS}`, 28, 160);
 
       // PUNTI
       hudCtx.fillStyle = score >= 0 ? '#00ff66' : '#ff2a6d';
-      hudCtx.font = 'bold 30px Arial';
-      hudCtx.fillText('Punti: ' + score, 28, 205);
+      hudCtx.font = 'bold 28px Arial';
+      hudCtx.fillText('Punti: ' + score, 28, 210);
 
       // INCLINAZIONE
       const degPitch = Math.round(THREE.MathUtils.radToDeg(currentGunPitch));
       hudCtx.fillStyle = '#ffb703'; hudCtx.font = 'bold 20px Arial';
-      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 250);
+      hudCtx.fillText('Inclinazione: ' + degPitch + '°', 28, 255);
 
       hudTexture.needsUpdate = true;
     }
@@ -621,7 +645,6 @@
             const idx = activeAnimals.indexOf(animal);
             if (idx !== -1) activeAnimals.splice(idx, 1);
 
-            // Passaggio al Frame 2 di volo (a22 o b22)
             animal.material.map = animal.userData.texFrame2;
             animal.material.needsUpdate = true;
 
@@ -685,9 +708,8 @@
       if (gameState === 'PLAYING') {
         survivalTime += delta;
 
-        // INCREMENTO PROGRESSIVO DELLA DIFFICOLTÀ
-        difficultyMultiplier = 1.0 + (survivalTime * 0.03); // Velocità cresce del 3% ogni secondo
-        const currentSpawnInterval = Math.max(0.8, baseSpawnInterval - (survivalTime * 0.02)); // Spawn fino a ogni 0.8s
+        difficultyMultiplier = 1.0 + (survivalTime * 0.03);
+        const currentSpawnInterval = Math.max(0.8, baseSpawnInterval - (survivalTime * 0.02));
 
         spawnTimer += delta;
         if (spawnTimer >= currentSpawnInterval) {
@@ -695,27 +717,32 @@
           spawnAnimalFromOutside();
         }
 
-        // Movimento Orizzontale sulla linea centrale
+        // Movimento Orizzontale
         for (let i = activeAnimals.length - 1; i >= 0; i--) {
           const a = activeAnimals[i];
           a.position.x += a.userData.dirX * a.userData.speed * delta;
 
           a.lookAt(camera.position.x, a.position.y, camera.position.z);
 
-          // CONTROLLO AREA CENTRALE (Z = -2.5, |X| < 0.3): RILASCIO CACCA
-          if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.3) {
+          // RILASCIO CACCA NEL 20% CENTRALE DEL GIARDINO (X tra -0.5 e 0.5)
+          if (!a.userData.hasPooped && Math.abs(a.position.x) < 0.5) {
             a.userData.hasPooped = true;
-            createPoopModel(a.position.x, a.position.z);
+
+            // Offset casuale nell'area centrale (20% centrale)
+            const randomX = (Math.random() - 0.5) * 1.0; 
+            const randomZ = -2.5 + (Math.random() - 0.5) * 1.0; 
+
+            createPoopModel(randomX, randomZ);
             updateHudTexture();
 
-            // SCONFITTA A 5 CACCHE
+            // GAME OVER A 5 CACCHE
             if (poops.length >= MAX_POOPS) {
-              gameOver();
+              triggerGameOver();
               break;
             }
           }
 
-          // Rimuove se esce dal lato opposto
+          // Rimuove quando esce
           if ((a.userData.dirX > 0 && a.position.x > a.userData.targetX) ||
               (a.userData.dirX < 0 && a.position.x < a.userData.targetX)) {
             scene.remove(a);
@@ -725,7 +752,7 @@
           }
         }
 
-        // Volo ragdoll colpiti
+        // Volo ragdoll
         for (let i = flyingRagdolls.length - 1; i >= 0; i--) {
           const ragdoll = flyingRagdolls[i];
           ragdoll.life -= delta;

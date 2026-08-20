@@ -53,7 +53,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     // VERSIONE DEL GIOCO
-    const GAME_VERSION = "v3.12.0";
+    const GAME_VERSION = "v3.13.0";
 
     let scene, camera, renderer, controls;
     let cameraRig; 
@@ -91,9 +91,10 @@
 
     const textureCache = {};
     const textureLoader = new THREE.TextureLoader();
-    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41'];
+    
+    // AGGIUNTO D31 ALL'ARRAY DEGLI ANIMALI DISPONIBILI
+    const AVAILABLE_IMAGES = ['a21', 'b21', 'c41', 'd31'];
 
-    // TAGLIE: Dimensione 4 ridotta, punti e velocità ricalcolati
     const SIZE_MAP = {
       1: { scale: 0.35, points: 200, speed: 1.4, weight: 8 },
       2: { scale: 0.55, points: 150, speed: 1.0, weight: 4 },
@@ -238,7 +239,6 @@
       scene.add(fenceGroup);
     }
 
-    // CACCA PROPORZIONALE ALLA TAGLIA DELL'ANIMALE
     function createPoopModel(x, z, scaleFactor = 1.0) {
       const poopGroup = new THREE.Group();
       const mat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.9 });
@@ -310,7 +310,6 @@
       poops = [];
     }
 
-    // SELEZIONE TAGLIA CON PROBABILITÀ INVERSAMENTE PROPORZIONALE
     function getRandomSizeDigit() {
       const keys = Object.keys(SIZE_MAP);
       let totalWeight = keys.reduce((sum, k) => sum + SIZE_MAP[k].weight, 0);
@@ -369,7 +368,7 @@
         poopTimer: 0,
         baseY: sizeData.scale / 2,
         wobbleSpeed: 12 + Math.random() * 6,
-        sizeScaleFactor: sizeData.scale / 0.60, // Rapporto rispetto alla taglia base 2
+        sizeScaleFactor: sizeData.scale / 0.60,
         texFrame2: texFrame2
       };
 
@@ -439,7 +438,6 @@
       noise.start(now);
     }
 
-    // EFFETTO AUDIO CACCA (SQUIRT/PLOP)
     function playPoopSound() {
       initAudio();
       if (!audioCtx) return;
@@ -502,7 +500,6 @@
       btnPitchUpMesh.userData = { action: 'pitch_up' };
       hudGroup.add(btnPitchUpMesh); hudButtons.push(btnPitchUpMesh);
 
-      // PARTIAMO CON MANO DESTRA ATTIVA, PULSANTE MOSTRA "Mano sinistra"
       btnHandToggleMesh = create3DButton("Mano sinistra", 0.28, 0.11, "#00ffff");
       btnHandToggleMesh.position.set(0.32, -0.45, 0);
       btnHandToggleMesh.userData = { action: 'toggle_hand' };
@@ -724,7 +721,6 @@
               pushDir.z * 6.5
             );
 
-            // ROTAZIONE IN VOLO SOLO SULL'ASSE Z
             flyingRagdolls.push({
               mesh: animal,
               velocity: impulse,
@@ -810,7 +806,6 @@
           else if (a.userData.state === 'POOPING') {
             a.userData.poopTimer -= delta;
             if (a.userData.poopTimer <= 0) {
-              // Rilascia cacca proporzionale e suona il rumore dedicato
               createPoopModel(a.position.x, a.position.z, a.userData.sizeScaleFactor);
               playPoopSound();
               
@@ -843,7 +838,6 @@
           ragdoll.velocity.y -= 9.8 * delta;
           ragdoll.mesh.position.addScaledVector(ragdoll.velocity, delta);
           
-          // Rotazione in volo SOLO attorno all'asse Z
           ragdoll.mesh.rotation.z += ragdoll.rotVelocityZ * delta;
 
           if (ragdoll.mesh.position.y <= -0.5 || ragdoll.life <= 0) {
